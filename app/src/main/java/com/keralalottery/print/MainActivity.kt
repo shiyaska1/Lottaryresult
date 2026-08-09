@@ -1,0 +1,262 @@
+package com.keralalottery.print
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import android.os.Bundle
+import android.os.ParcelFileDescriptor
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.keralalottery.print.model.LotteryResult
+import com.keralalottery.print.network.KeralaLotteryResultsClient
+import com.keralalottery.print.network.LotteryListing
+import com.keralalottery.print.parse.LotteryPdfParser
+import com.keralalottery.print.pdf.CompactPdfGenerator
+import com.keralalottery.print.pdf.PdfPrinter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+private sealed interface ListingsState {
+    data object Loading : ListingsState
+    data class Loaded(val items: List<LotteryListing>) : ListingsState
+    data class Error(val message: String) : ListingsState
+}
+
+private sealed interface GenerationState {
+    data object Idle : GenerationState
+    data object Working : GenerationState
+    data class Error(val message: String) : GenerationState
+    data class Ready(val result: LotteryResult, val file: File, val preview: Bitmap) : GenerationState
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MaterialTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    LotteryPrintApp()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LotteryPrintApp() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var companyName by remember { mutableStateOf("") }
+    var genState by remember { mutableStateOf<GenerationState>(GenerationState.Idle) }
+
+    var listingsState by remember { mutableStateOf<ListingsState>(ListingsState.Loading) }
+    var selectedListing by remember { mutableStateOf<LotteryListing?>(null) }
+    var reloadKey by remember { mutableIntStateOf(0) }
+
+    var manualUri by remember { mutableStateOf<Uri?>(null) }
+    var manualName by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(reloadKey) {
+        listingsState = ListingsState.Loading
+        listingsState = try {
+            val items = withContext(Dispatchers.IO) { KeralaLotteryResultsClient.fetchLatestDraws() }
+            selectedListing = items.firstOrNull()
+            ListingsState.Loaded(items)
+        } catch (e: Exception) {
+            ListingsState.Error(e.message ?: "Could not load the results list.")
+        }
+    }
+
+    val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            manualUri = uri
+            manualName = queryDisplayName(context, uri)
+        }
+    }
+
+    fun runGeneration(block: suspend () -> LotteryResult) {
+        genState = GenerationState.Working
+        scope.launch {
+            try {
+                val (result, file, preview) = withContext(Dispatchers.IO) {
+                    val parsed = block()
+                    val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
+                    val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
+                    CompactPdfGenerator.generate(parsed, companyName.trim(), outFile)
+                    val bitmap = renderFirstPage(outFile)
+                    Triple(parsed, outFile, bitmap)
+                }
+                genState = GenerationState.Ready(result, file, preview)
+            } catch (e: Exception) {
+                genState = GenerationState.Error(e.message ?: "Something went wrong.")
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Lottery Result — One-Page Print", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Fetch the latest official-style Kerala lottery result and get back a single, " +
+                "dense, bold, printable page with your own header.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+
+        OutlinedTextField(
+            value = companyName,
+            onValueChange = { companyName = it },
+            label = { Text("Header / Company name") },
+            placeholder = { Text("e.g. Sree Lucky Agencies") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        HorizontalDivider()
+        Text("Fetch latest result", style = MaterialTheme.typography.titleMedium)
+
+        when (val ls = listingsState) {
+            is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Loading lottery list…")
+            }
+            is ListingsState.Error -> Column {
+                Text("Error: ${ls.message}", color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { reloadKey++ }) { Text("Retry") }
+            }
+            is ListingsState.Loaded -> {
+                var expanded by remember { mutableStateOf(false) }
+                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                    OutlinedTextField(
+                        value = selectedListing?.let { "${it.name} (${it.drawCode}) — ${it.date}" } ?: "",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Lottery") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        ls.items.forEach { listing ->
+                            DropdownMenuItem(
+                                text = { Text("${listing.name} (${listing.drawCode}) — ${listing.date}") },
+                                onClick = {
+                                    selectedListing = listing
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+                Button(
+                    onClick = {
+                        val listing = selectedListing ?: return@Button
+                        runGeneration {
+                            val bytes = KeralaLotteryResultsClient.fetchResultPdf(listing.drawSerial)
+                            LotteryPdfParser.parsePdfBytes(context, bytes)
+                        }
+                    },
+                    enabled = selectedListing != null && genState !is GenerationState.Working,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Fetch latest & generate one-page result")
+                }
+            }
+        }
+
+        HorizontalDivider()
+        Text("Or import a PDF file manually", style = MaterialTheme.typography.titleMedium)
+        Button(onClick = { pickPdf.launch(arrayOf("application/pdf")) }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (manualName == null) "Choose official result PDF" else "Change PDF")
+        }
+        manualName?.let { Text("Selected: $it", style = MaterialTheme.typography.bodySmall) }
+        Button(
+            onClick = {
+                val uri = manualUri ?: return@Button
+                runGeneration { LotteryPdfParser.parsePdf(context, uri) }
+            },
+            enabled = manualUri != null && genState !is GenerationState.Working,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Generate from imported PDF")
+        }
+
+        when (val s = genState) {
+            is GenerationState.Working -> Box(
+                Modifier.fillMaxWidth().padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) { CircularProgressIndicator() }
+            is GenerationState.Error -> Text(
+                "Error: ${s.message}",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            is GenerationState.Ready -> {
+                HorizontalDivider()
+                Text("Preview", style = MaterialTheme.typography.titleMedium)
+                Image(
+                    bitmap = s.preview.asImageBitmap(),
+                    contentDescription = "Generated result preview",
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = { PdfPrinter.print(context, s.file, "Lottery Result") }) {
+                        Text("Print")
+                    }
+                    OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
+                        Text("Share / Save")
+                    }
+                }
+            }
+            GenerationState.Idle -> Unit
+        }
+    }
+}
+
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    return try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else uri.lastPathSegment
+        } ?: uri.lastPathSegment
+    } catch (e: Exception) {
+        uri.lastPathSegment
+    }
+}
+
+private fun renderFirstPage(file: File): Bitmap {
+    ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+        PdfRenderer(pfd).use { renderer ->
+            renderer.openPage(0).use { page ->
+                // 2x scale for a crisp on-screen preview of the vector text.
+                val bitmap = Bitmap.createBitmap(page.width * 2, page.height * 2, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.WHITE)
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                return bitmap
+            }
+        }
+    }
+}
