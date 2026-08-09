@@ -169,7 +169,7 @@ object CompactPdfGenerator {
         canvas.drawText(metaLine, centerX, y, metaPaint)
         y += 12f
         canvas.drawText(
-            "Unofficial reprint — please verify against the Kerala Government Gazette.",
+            "Reprint of the official result — please verify against the Kerala Government Gazette.",
             centerX, y, disclaimerPaint
         )
         y += 8f

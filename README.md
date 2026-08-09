@@ -7,15 +7,17 @@ with your own shop/company name as the header.
 
 ## What it does
 
-1. On launch, the app fetches the results listing from `result.keralalotteries.com` and fills
-   a **dropdown of lottery names** (SAMRUDHI, KARUNYA, KARUNYA PLUS, STHREE-SAKTHI,
-   DHANALEKSHMI, SUVARNA KERALAM, BHAGYATHARA, and whatever bumper is currently running) —
-   each entry is that lottery's most recent draw.
+1. On launch, the app fetches the results listing from the Kerala Government's own lottery
+   portal (`lotteryagent.kerala.gov.in/result/public/`) and fills a **dropdown of lottery
+   names** (SAMRUDHI, KARUNYA, KARUNYA PLUS, STHREE-SAKTHI, DHANALEKSHMI, SUVARNA KERALAM,
+   BHAGYATHARA, and whatever bumper is currently running) — each entry is that lottery's most
+   recent draw.
 2. Type the header you want printed at the top (your company/shop name).
 3. Pick a lottery from the dropdown and tap **Fetch latest & generate one-page result** — the
    app:
-   - Downloads that draw's official-style result PDF directly from the site
-     (`viewlotisresult.php?drawserial=<id>`).
+   - Solves the same small arithmetic CAPTCHA the site's own "Download" button shows (it
+     fetches the expression the site hands out and computes it, exactly what the site's own
+     page JavaScript does), then downloads that draw's official PDF from `/results/<itemId>`.
    - Extracts the text layer from all 4 pages.
    - Parses it into the lottery name, draw number/date/venue, and every prize tier (1st/2nd/3rd
      bumper prizes with ticket + place, the consolation prize, and the 4th–9th prize number
@@ -38,7 +40,7 @@ fallback for when the site is unreachable or for a draw the listing doesn't show
 app/src/main/java/com/keralalottery/print/
 ├─ MainActivity.kt          # Compose UI: lottery dropdown, header input, preview, print/share
 ├─ model/LotteryResult.kt   # Parsed data model (header, prize tiers, winners, numbers)
-├─ network/KeralaLotteryResultsClient.kt # Fetches the listing + latest-draw PDF over HTTP
+├─ network/OfficialLotteryResultsClient.kt # Fetches the listing + latest-draw PDF over HTTP
 ├─ parse/LotteryPdfParser.kt# PDF text extraction (PdfBox-Android) + regex structural parser
 └─ pdf/
    ├─ CompactPdfGenerator.kt# Single-page layout engine (auto-fit font size, grid columns)
@@ -54,11 +56,22 @@ app/src/main/java/com/keralalottery/print/
 
 ## Data source
 
-Results are fetched from `result.keralalotteries.com`, a third-party site that republishes
-the government's draw results (it is not `kerala.gov.in` itself). Every generated page carries
-an "Unofficial reprint — please verify against the Kerala Government Gazette" disclaimer for
-that reason. If that site changes its page layout, `KeralaLotteryResultsClient`'s `ROW_REGEX`
-is the one place that needs updating.
+Results are fetched directly from `lotteryagent.kerala.gov.in`, the Kerala Government's own
+lottery portal. Every generated page still carries a "please verify against the Kerala
+Government Gazette" disclaimer — the same advice the official PDF itself prints on every
+result, regardless of source.
+
+The site's own "Download" button is gated behind a small arithmetic CAPTCHA (e.g. `10 - 6`),
+shown as a popup after fetching an expression from `/getexprestion/single`. That check runs
+entirely in the site's own client-side JavaScript (`eval()` against the typed answer) — the
+`/results/<itemId>` download endpoint itself did not appear to enforce it server-side when
+this was tested. `OfficialLotteryResultsClient.fetchResultPdf` still fetches and computes that
+same expression before downloading, mirroring exactly what a person using the site in a
+browser would do, rather than skipping the step outright.
+
+If the site changes its page layout, `OfficialLotteryResultsClient`'s `ROW_REGEX` (listing
+rows) or `CAPTCHA_RESULT_REGEX`/`CAPTCHA_EXPRESSION_REGEX` (CAPTCHA response) are the places
+that need updating.
 
 ## Parser scope
 

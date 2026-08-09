@@ -22,8 +22,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.keralalottery.print.model.LotteryResult
-import com.keralalottery.print.network.KeralaLotteryResultsClient
 import com.keralalottery.print.network.LotteryListing
+import com.keralalottery.print.network.OfficialLotteryResultsClient
 import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfPrinter
@@ -76,7 +76,7 @@ private fun LotteryPrintApp() {
     LaunchedEffect(reloadKey) {
         listingsState = ListingsState.Loading
         listingsState = try {
-            val items = withContext(Dispatchers.IO) { KeralaLotteryResultsClient.fetchLatestDraws() }
+            val items = withContext(Dispatchers.IO) { OfficialLotteryResultsClient.fetchLatestDraws() }
             selectedListing = items.firstOrNull()
             ListingsState.Loaded(items)
         } catch (e: Exception) {
@@ -119,8 +119,8 @@ private fun LotteryPrintApp() {
     ) {
         Text("Lottery Result — One-Page Print", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Fetch the latest official-style Kerala lottery result and get back a single, " +
-                "dense, bold, printable page with your own header.",
+            "Fetch the latest result straight from the Kerala Government's official lottery " +
+                "portal and get back a single, dense, bold, printable page with your own header.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -134,7 +134,7 @@ private fun LotteryPrintApp() {
         )
 
         HorizontalDivider()
-        Text("Fetch latest result", style = MaterialTheme.typography.titleMedium)
+        Text("Fetch latest official result", style = MaterialTheme.typography.titleMedium)
 
         when (val ls = listingsState) {
             is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -175,7 +175,7 @@ private fun LotteryPrintApp() {
                     onClick = {
                         val listing = selectedListing ?: return@Button
                         runGeneration {
-                            val bytes = KeralaLotteryResultsClient.fetchResultPdf(listing.drawSerial)
+                            val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
                             LotteryPdfParser.parsePdfBytes(context, bytes)
                         }
                     },
