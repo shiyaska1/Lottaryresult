@@ -12,6 +12,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -40,6 +42,7 @@ import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
+import com.keralalottery.print.ui.ZoomableImageViewer
 import com.keralalottery.print.quicklinks.QuickLinksRow
 import com.keralalottery.print.update.AppUpdater
 import kotlinx.coroutines.Dispatchers
@@ -53,11 +56,13 @@ private sealed interface ListingsState {
     data class Error(val message: String) : ListingsState
 }
 
+private enum class ResultSource { OFFICIAL, UNOFFICIAL, IMPORTED }
+
 private sealed interface GenerationState {
     data object Idle : GenerationState
     data object Working : GenerationState
     data class Error(val message: String) : GenerationState
-    data class Ready(val result: LotteryResult, val file: File, val preview: Bitmap) : GenerationState
+    data class Ready(val result: LotteryResult, val file: File, val preview: Bitmap, val source: ResultSource) : GenerationState
 }
 
 class MainActivity : ComponentActivity() {
@@ -170,7 +175,7 @@ private fun LotteryPrintApp() {
         }
     }
 
-    fun runGeneration(block: suspend () -> LotteryResult) {
+    fun runGeneration(source: ResultSource, block: suspend () -> LotteryResult) {
         genState = GenerationState.Working
         scope.launch {
             try {
@@ -188,7 +193,7 @@ private fun LotteryPrintApp() {
                     }
                     Triple(parsed, outFile, bitmap)
                 }
-                genState = GenerationState.Ready(result, file, preview)
+                genState = GenerationState.Ready(result, file, preview, source)
             } catch (e: Exception) {
                 genState = GenerationState.Error(e.message ?: "Something went wrong.")
             }
@@ -299,7 +304,8 @@ private fun LotteryPrintApp() {
         Button(
             onClick = {
                 val listing = selectedListing ?: return@Button
-                runGeneration {
+                val source = if (useUnofficial) ResultSource.UNOFFICIAL else ResultSource.OFFICIAL
+                runGeneration(source) {
                     if (useUnofficial) {
                         val url = UnofficialLotteryResultsClient.guessUrl(listing)
                         val html = UnofficialLotteryResultsClient.fetchHtml(url)
@@ -325,7 +331,7 @@ private fun LotteryPrintApp() {
         Button(
             onClick = {
                 val uri = manualUri ?: return@Button
-                runGeneration { LotteryPdfParser.parsePdf(context, uri) }
+                runGeneration(ResultSource.IMPORTED) { LotteryPdfParser.parsePdf(context, uri) }
             },
             enabled = manualUri != null && genState !is GenerationState.Working && passwordReady,
             modifier = Modifier.fillMaxWidth()
@@ -346,6 +352,7 @@ private fun LotteryPrintApp() {
             is GenerationState.Ready -> {
                 HorizontalDivider()
                 Text("Preview", style = MaterialTheme.typography.titleMedium)
+                SourceBadge(source = s.source, tierCount = s.result.tiers.size)
                 // Actions come before the (often tall) preview image so they stay reachable
                 // without scrolling all the way down past it, near the phone's nav bar.
                 Row(
@@ -370,14 +377,43 @@ private fun LotteryPrintApp() {
                         Text("Share")
                     }
                 }
+                var viewingFullScreen by remember { mutableStateOf(false) }
                 Image(
                     bitmap = s.preview.asImageBitmap(),
-                    contentDescription = "Generated result preview",
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    contentDescription = "Generated result preview - tap to zoom in and verify each number",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .clickable { viewingFullScreen = true }
                 )
+                if (viewingFullScreen) {
+                    ZoomableImageViewer(bitmap = s.preview, onDismiss = { viewingFullScreen = false })
+                }
             }
             GenerationState.Idle -> Unit
         }
+    }
+}
+
+/** Tells the user which source the currently shown result came from - the printed page looks
+ * identical either way, but people need to know whether to trust it as final or expect it to
+ * fill in further (unofficial results are often posted early with only some prizes). */
+@Composable
+private fun SourceBadge(source: ResultSource, tierCount: Int) {
+    val (text, color) = when (source) {
+        ResultSource.OFFICIAL -> "Official government portal" to MaterialTheme.colorScheme.primary
+        ResultSource.IMPORTED -> "Manually imported PDF" to MaterialTheme.colorScheme.primary
+        ResultSource.UNOFFICIAL -> "Unofficial source (keralalotteries.net) - $tierCount prize tier${if (tierCount == 1) "" else "s"} found, may still be incomplete" to
+            MaterialTheme.colorScheme.error
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(color, shape = androidx.compose.foundation.shape.CircleShape)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text("Source: $text", style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 
