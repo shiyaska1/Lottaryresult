@@ -307,9 +307,17 @@ private fun LotteryPrintApp() {
                 val source = if (useUnofficial) ResultSource.UNOFFICIAL else ResultSource.OFFICIAL
                 runGeneration(source) {
                     if (useUnofficial) {
-                        val url = UnofficialLotteryResultsClient.guessUrl(listing)
-                        val html = UnofficialLotteryResultsClient.fetchHtml(url)
-                        UnofficialResultParser.parseHtml(html)
+                        try {
+                            val url = UnofficialLotteryResultsClient.guessUrl(listing)
+                            val html = UnofficialLotteryResultsClient.fetchHtml(url)
+                            UnofficialResultParser.parseHtml(html)
+                        } catch (e: Exception) {
+                            // The mirror page itself might not be up yet (404) ahead of the
+                            // draw - still print the letterhead from what the official listing
+                            // already tells us, with the same "result coming soon" placeholder
+                            // as a page that loaded but had nothing on it yet.
+                            UnofficialResultParser.waitingResult(listing)
+                        }
                     } else {
                         val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
                         LotteryPdfParser.parsePdfBytes(context, bytes)

@@ -3,6 +3,7 @@ package com.keralalottery.print.parse
 import com.keralalottery.print.model.LotteryHeader
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.model.PrizeTier
+import com.keralalottery.print.network.LotteryListing
 
 /**
  * Parses a result page from a pasted mirror-site link (e.g. keralalotteries.net) into the same
@@ -95,6 +96,22 @@ object UnofficialResultParser {
             drawNumber, drawDate, drawTime, venue
         )
         return LotteryResult(header, prizeTiers)
+    }
+
+    /** Used when the unofficial page itself isn't reachable yet at all (e.g. a 404 - the
+     * mirror site hasn't even published the article yet, ahead of the draw). The header is
+     * built from the official listing directly, since that's already known regardless of
+     * whether the mirror page exists, and the empty tier list renders the same "result coming
+     * soon" placeholder as a page that loaded but had nothing on it yet. */
+    fun waitingResult(listing: LotteryListing): LotteryResult {
+        val header = LotteryHeader(
+            lotteryName = "${listing.name} LOTTERY",
+            drawNumber = listing.drawCode,
+            drawDate = listing.date,
+            drawTime = "",
+            venue = DEFAULT_VENUE
+        )
+        return LotteryResult(header, emptyList())
     }
 
     /** Strips scripts/styles/tags to newlines (so adjacent inline elements never glue together
