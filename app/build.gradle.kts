@@ -118,5 +118,8 @@ dependencies {
     // Fetches the results listing + latest-draw PDF from the official government portal.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Play in-app updates: forces an update as soon as one is published (see AppUpdater).
+    implementation("com.google.android.play:app-update-ktx:2.1.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -25,7 +25,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.keralalottery.print.data.AppPrefs
-import com.keralalottery.print.data.License
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
@@ -33,6 +32,7 @@ import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
+import com.keralalottery.print.update.AppUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -54,10 +54,15 @@ private sealed interface GenerationState {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Offer the Play update straight away, so users are not left on an old build.
+        AppUpdater.check(this)
         val prefs = AppPrefs(this)
         // Start the trial clock automatically on first launch - no registration needed.
         if (prefs.installDateMillis <= 0L) prefs.installDateMillis = System.currentTimeMillis()
-        val needsLicense = !prefs.licensed && License.trialExpired(prefs.installDateMillis)
+        // Trial/licence gate disabled for now - free for everyone until a mobile-number-based
+        // licensing scheme replaces this device-ID one. License.kt/AppPrefs.kt/LicenseScreen.kt
+        // are left in place to build that on top of.
+        val needsLicense = false
 
         setContent {
             MaterialTheme {
@@ -71,6 +76,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-check every time the app comes back to the foreground — this is what makes an
+        // update actually mandatory: backing out of the Play update screen just returns here
+        // and immediately re-blocks, instead of leaving the user on the old build.
+        AppUpdater.check(this)
     }
 }
 
