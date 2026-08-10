@@ -46,6 +46,10 @@ object CompactPdfGenerator {
     // Shown in the body when the unofficial page exists for today's draw but has no prize
     // tiers on it yet - published early, ahead of the draw itself.
     private const val WAITING_TEXT = "ഫലം ഉടൻ വരും"
+    // Shown right after the printed tiers when the unofficial source has at least one prize
+    // (e.g. just the 1st) but is still unofficial, so more could be added on a re-fetch.
+    private const val BALANCE_NOTE_TEXT = "ബാക്കി സമ്മാനങ്ങൾ ഉടൻ വരും - കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക"
+    private const val BALANCE_NOTE_HEIGHT = 14f
 
     private val A4 = 595f to 842f
 
@@ -90,7 +94,10 @@ object CompactPdfGenerator {
     private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
-        val footerHeight = FOOTER_HEIGHT + if (isUnofficial) UNOFFICIAL_NOTE_HEIGHT else 0f
+        val showBalanceNote = isUnofficial && result.tiers.isNotEmpty()
+        val footerHeight = FOOTER_HEIGHT +
+            (if (isUnofficial) UNOFFICIAL_NOTE_HEIGHT else 0f) +
+            (if (showBalanceNote) BALANCE_NOTE_HEIGHT else 0f)
         val availableHeight = pageH - MARGIN * 2 - footerHeight
 
         var fs = CEILING_FONT
@@ -360,6 +367,17 @@ object CompactPdfGenerator {
                 }
             }
             y += TIER_GAP
+        }
+
+        if (plan.isUnofficial && plan.tierRows.isNotEmpty()) {
+            val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 10f
+                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                color = Color.BLACK
+                textAlign = Paint.Align.CENTER
+            }
+            y += -notePaint.fontMetrics.ascent
+            drawFit(canvas, BALANCE_NOTE_TEXT, centerX, y, contentWidth, notePaint)
         }
 
         // Small fixed footer note, anchored to the page bottom regardless of how much body
