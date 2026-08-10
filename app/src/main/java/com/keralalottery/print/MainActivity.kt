@@ -309,14 +309,14 @@ private fun LotteryPrintApp() {
                         PdfPrinter.saveToDownloads(context, s.file, name)
                         Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
                     }) {
-                        Text("Download PDF")
+                        Text("PDF")
                     }
                     OutlinedButton(onClick = {
                         val name = "Lottery_Result_${System.currentTimeMillis()}.jpg"
                         PdfPrinter.saveJpgToDownloads(context, s.preview, name)
                         Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
                     }) {
-                        Text("Download JPG")
+                        Text("JPG")
                     }
                     OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
                         Text("Share")
