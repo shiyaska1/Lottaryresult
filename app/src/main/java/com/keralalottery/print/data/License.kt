@@ -25,7 +25,7 @@ object License {
     /** WhatsApp chat pre-filled with the device id, so the licence key can be issued straight away. */
     fun buyUrlFor(deviceId: String): String {
         val msg = java.net.URLEncoder.encode(
-            "I want to buy Lottery Result Print. My Device ID is $deviceId", "UTF-8"
+            "I want to buy Kerala Info Hub. My Device ID is $deviceId", "UTF-8"
         )
         return "https://wa.me/$SUPPORT_WHATSAPP?text=$msg"
     }
