@@ -101,8 +101,10 @@ object CompactPdfGenerator {
                 when (kind) {
                     Kind.WINNER -> {
                         val winners = tier.winners.ifEmpty { listOf(null) }
-                        for (winner in winners) {
-                            if (labelPaint.measureText(winnerLine(label, amount, winner)) > contentWidth) widthOk = false
+                        winners.forEachIndexed { i, winner ->
+                            if (labelPaint.measureText(winnerLine(label, amount, winner, i == 0)) > contentWidth) {
+                                widthOk = false
+                            }
                         }
                         val n = tier.winners.size.coerceAtLeast(1)
                         bodyHeight += n * (fs + 2f) * ROW_LEADING + TIER_GAP
@@ -126,7 +128,15 @@ object CompactPdfGenerator {
                         val columns = if (colWidth <= 0f) 1 else maxOf(1, (contentWidth / colWidth).toInt())
                         val count = tier.numbers.size
                         val rowCount = if (count == 0) 0 else (count + columns - 1) / columns
-                        bodyHeight += (fs + 1f) * ROW_LEADING + rowCount * fs * ROW_LEADING + TIER_GAP
+                        // The bar is a solid rectangle sized to its own text's full ascent+descent
+                        // (not just the leading), plus the first number row needs its own ascent
+                        // clearance below the bar - both are exact font-metric distances, not a
+                        // flat constant, or small/large fonts overlap the bar on one side or other.
+                        val barFm = barPaint.fontMetrics
+                        val barPad = 2f
+                        val barBlockHeight = (barFm.descent - barFm.ascent) + barPad * 2f
+                        val gapToFirstRow = -numberPaint.fontMetrics.ascent + barPad
+                        bodyHeight += barBlockHeight + gapToFirstRow + rowCount * fs * ROW_LEADING + TIER_GAP
                         TierRows(tier, columns = columns, kind = kind)
                     }
                 }
@@ -183,8 +193,12 @@ object CompactPdfGenerator {
     }
 
     // Shared text builders - used both to measure (plan) and to draw, so the two never disagree.
-    private fun winnerLine(label: String, amount: String, winner: Winner?): String =
-        if (winner != null) "$label: $amount      ${winner.ticketNumber} ( ${winner.place} )" else "$label: $amount"
+    // A tier can have several named winners (bumper draws list some lower tiers that way) - only
+    // the first line repeats the label, the rest are indented continuations, same as consolation.
+    private fun winnerLine(label: String, amount: String, winner: Winner?, isFirst: Boolean): String {
+        val prefix = if (isFirst) "$label: $amount" else "   "
+        return if (winner != null) "$prefix      ${winner.ticketNumber} ( ${winner.place} )" else prefix
+    }
 
     private fun consolationLine(label: String, amount: String, entry: String, isFirst: Boolean): String =
         if (isFirst) "$label: $amount   $entry" else "   $entry"
@@ -279,8 +293,8 @@ object CompactPdfGenerator {
             when (tr.kind) {
                 Kind.WINNER -> {
                     val winners = tier.winners.ifEmpty { listOf(null) }
-                    for (winner in winners) {
-                        canvas.drawText(winnerLine(label, amountText, winner), leftX, y, labelPaint)
+                    winners.forEachIndexed { i, winner ->
+                        canvas.drawText(winnerLine(label, amountText, winner, i == 0), leftX, y, labelPaint)
                         y += (plan.numberFontSize + 2f) * ROW_LEADING
                     }
                 }
@@ -292,12 +306,17 @@ object CompactPdfGenerator {
                     }
                 }
                 Kind.GRID -> {
+                    // y is treated as the bar's TOP edge here (not a text baseline) - the whole
+                    // bar is drawn at-or-below it, so it can never paint back up over whatever
+                    // came before it. Mirrors the exact math plan() used to budget the height.
                     val fm = barTextPaint.fontMetrics
-                    val barTop = y + fm.ascent - 2f
-                    val barBottom = y + fm.descent + 2f
+                    val barPad = 2f
+                    val barTop = y
+                    val barBottom = barTop + (fm.descent - fm.ascent) + barPad * 2f
+                    val textBaseline = barTop + barPad - fm.ascent
                     canvas.drawRect(MARGIN, barTop, pageW - MARGIN, barBottom, barPaint)
-                    canvas.drawText(barLine(label, amountText), centerX, y, barTextPaint)
-                    y += (plan.numberFontSize + 1f) * ROW_LEADING
+                    canvas.drawText(barLine(label, amountText), centerX, textBaseline, barTextPaint)
+                    y = barBottom + (-numberPaint.fontMetrics.ascent + barPad)
 
                     val columns = tr.columns.coerceAtLeast(1)
                     val colWidth = contentWidth / columns

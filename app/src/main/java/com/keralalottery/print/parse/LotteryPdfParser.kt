@@ -133,9 +133,14 @@ object LotteryPdfParser {
         fun finalize(): PrizeTier {
             val text = rawContent.toString().trim().replace(Regex("\\s+"), " ")
             val label = if (key == "Cons") "Consolation Prize" else "$key Prize"
-            return when (key) {
-                "1st", "2nd", "3rd" -> parseWinnerTier(label, text)
-                "Cons" -> parseConsolationTier(label, text)
+            // Bumper draws sometimes list a lower tier (e.g. 4th) as several named winners on
+            // one line - "1) MA 838733 (IRINJALAKUDA) 2) MB 509385 (PALAKKAD) ..." - instead of
+            // the usual bare last-N-digit list. Detect that by content, not by which tier key it
+            // is: any tier whose text actually contains the "PREFIX NUMBER (PLACE)" pattern gets
+            // parsed as named winners.
+            return when {
+                key == "Cons" -> parseConsolationTier(label, text)
+                WINNER.containsMatchIn(text) -> parseWinnerTier(label, text)
                 else -> parseBareNumberTier(label, text)
             }
         }
