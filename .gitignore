@@ -10,3 +10,6 @@
 local.properties
 /app/build/
 .kotlin/
+
+# Play Store upload keystore — never commit. Kept only on the machine that signs releases.
+/secrets/

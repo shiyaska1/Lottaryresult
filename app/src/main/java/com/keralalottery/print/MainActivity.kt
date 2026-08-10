@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.keralalottery.print.data.AppPrefs
+import com.keralalottery.print.data.License
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
@@ -52,10 +54,20 @@ private sealed interface GenerationState {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val prefs = AppPrefs(this)
+        // Start the trial clock automatically on first launch - no registration needed.
+        if (prefs.installDateMillis <= 0L) prefs.installDateMillis = System.currentTimeMillis()
+        val needsLicense = !prefs.licensed && License.trialExpired(prefs.installDateMillis)
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    LotteryPrintApp()
+                    var licensed by remember { mutableStateOf(!needsLicense) }
+                    if (licensed) {
+                        LotteryPrintApp()
+                    } else {
+                        LicenseScreen(onActivated = { licensed = true })
+                    }
                 }
             }
         }

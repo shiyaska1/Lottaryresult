@@ -4,13 +4,19 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Printed ticket/page -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M24,34h60v10H24z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M24,50h60v10H24z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M24,66h40v10H24z" />
+        android:pathData="M30,28 L78,28 A4,4 0 0 1 82,32 L82,84 A4,4 0 0 1 78,88 L30,88 A4,4 0 0 1 26,84 L26,32 A4,4 0 0 1 30,28 Z" />
+    <!-- Printed rows -->
+    <path android:fillColor="#7A0C2E" android:pathData="M34,38 L74,38 L74,43 L34,43 Z" />
+    <path android:fillColor="#7A0C2E" android:pathData="M34,50 L74,50 L74,55 L34,55 Z" />
+    <path android:fillColor="#7A0C2E" android:pathData="M34,62 L74,62 L74,67 L34,67 Z" />
+    <path android:fillColor="#7A0C2E" android:pathData="M34,74 L58,74 L58,79 L34,79 Z" />
+    <!-- Lucky star badge -->
+    <group android:translateX="64" android:translateY="2" android:scaleX="0.95" android:scaleY="0.95">
+        <path
+            android:fillColor="#FFD54A"
+            android:pathData="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+    </group>
 </vector>
