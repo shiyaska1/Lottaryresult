@@ -47,7 +47,7 @@ fun GoldRateScreen() {
     // (keralagold.com) are two different network calls, each visibly loading/erroring on its
     // own instead of one silently swallowing the other's failure.
     var historyState by remember { mutableStateOf<FetchState>(FetchState.Loading) }
-    var period by remember { mutableStateOf(GoldPeriod.THIRTY_DAY) }
+    var period by remember { mutableStateOf(GoldPeriod.FIVE_DAY) }
     var backgroundUri by remember { mutableStateOf<Uri?>(null) }
 
     fun refresh() {

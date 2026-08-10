@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -35,6 +36,9 @@ interface SavedCalcDao {
 
     @Insert
     suspend fun insert(c: SavedCalc): Long
+
+    @Update
+    suspend fun update(c: SavedCalc)
 
     @Query("DELETE FROM saved_calcs WHERE id = :id")
     suspend fun delete(id: Long)

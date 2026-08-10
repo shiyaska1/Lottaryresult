@@ -10,11 +10,14 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -50,8 +53,33 @@ private enum class CalcTab { NEW, SAVED }
 fun CalculatorScreen() {
     var tab by remember { mutableStateOf(CalcTab.NEW) }
 
+    // Hoisted above the New/Saved tab switch: TapeCalculator used to remember() this itself,
+    // which meant it got destroyed and reset to empty every time the tab left composition -
+    // an accidental tap on "Saved" silently wiped out whatever was being typed. Living here
+    // instead, it survives switching tabs.
+    val entries = remember { mutableStateListOf<Double>() }
+    var input by remember { mutableStateOf("") }
+    var editingId by remember { mutableStateOf<Long?>(null) }
+    var editingLabel by remember { mutableStateOf("") }
+
+    fun startNew() {
+        entries.clear()
+        input = ""
+        editingId = null
+        editingLabel = ""
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(20.dp).navigationBarsPadding()) {
-        Text("Calculator", style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Calculator", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            if (entries.isNotEmpty() || input.isNotEmpty() || editingId != null) {
+                TextButton(onClick = { startNew() }) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("New")
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
         TabRow(selectedTabIndex = tab.ordinal) {
             Tab(selected = tab == CalcTab.NEW, onClick = { tab = CalcTab.NEW }, text = { Text("New") })
@@ -60,21 +88,45 @@ fun CalculatorScreen() {
         Spacer(Modifier.height(12.dp))
         Box(modifier = Modifier.weight(1f)) {
             when (tab) {
-                CalcTab.NEW -> TapeCalculator(onSaved = { tab = CalcTab.SAVED })
-                CalcTab.SAVED -> SavedCalcsList()
+                CalcTab.NEW -> TapeCalculator(
+                    entries = entries,
+                    input = input,
+                    onInputChange = { input = it },
+                    editingId = editingId,
+                    editingLabel = editingLabel,
+                    onSaved = {
+                        tab = CalcTab.SAVED
+                        startNew()
+                    }
+                )
+                CalcTab.SAVED -> SavedCalcsList(
+                    onEdit = { calc ->
+                        entries.clear()
+                        entries.addAll(calc.amountList)
+                        input = ""
+                        editingId = calc.id
+                        editingLabel = calc.label
+                        tab = CalcTab.NEW
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TapeCalculator(onSaved: () -> Unit) {
+private fun TapeCalculator(
+    entries: SnapshotStateList<Double>,
+    input: String,
+    onInputChange: (String) -> Unit,
+    editingId: Long?,
+    editingLabel: String,
+    onSaved: () -> Unit
+) {
     val context = LocalContext.current
     val dao = remember { AppDatabase.get(context).savedCalcDao() }
     val scope = rememberCoroutineScope()
 
-    val entries = remember { mutableStateListOf<Double>() }
-    var input by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     val scroll = rememberScrollState()
     val total = entries.sum()
@@ -89,7 +141,7 @@ private fun TapeCalculator(onSaved: () -> Unit) {
     fun add(sign: Int) {
         val v = input.toDoubleOrNull()
         if (v != null && v > 0.0) entries.add(v * sign)
-        input = ""
+        onInputChange("")
         focus.requestFocus()
     }
 
@@ -149,10 +201,18 @@ private fun TapeCalculator(onSaved: () -> Unit) {
         }
 
         Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            if (editingId != null) {
+                Text(
+                    "Editing a saved tape — Save will update it.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = input,
-                    onValueChange = { input = it.filter { c -> c.isDigit() || c == '.' } },
+                    onValueChange = { onInputChange(it.filter { c -> c.isDigit() || c == '.' }) },
                     label = { Text("Amount") },
                     singleLine = true,
                     textStyle = LocalTextStyle.current.copy(
@@ -164,7 +224,7 @@ private fun TapeCalculator(onSaved: () -> Unit) {
                     modifier = Modifier.weight(1f).focusRequester(focus)
                 )
                 IconButton(onClick = {
-                    if (input.isNotEmpty()) input = "" else if (entries.isNotEmpty()) entries.removeAt(entries.lastIndex)
+                    if (input.isNotEmpty()) onInputChange("") else if (entries.isNotEmpty()) entries.removeAt(entries.lastIndex)
                 }) { Icon(Icons.Filled.Backspace, contentDescription = "Remove last") }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -186,10 +246,10 @@ private fun TapeCalculator(onSaved: () -> Unit) {
                 }
             }
             Button(
-                onClick = { saveLabel = ""; showSaveDialog = true },
+                onClick = { saveLabel = editingLabel; showSaveDialog = true },
                 enabled = entries.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-            ) { Text("Save this tape") }
+            ) { Text(if (editingId != null) "Update this tape" else "Save this tape") }
         }
     }
 
@@ -219,7 +279,7 @@ private fun TapeCalculator(onSaved: () -> Unit) {
                     if (factor == null || cur == null || (mulDivOp == '/' && factor == 0.0)) {
                         showMulDivDialog = false; return@Button
                     }
-                    input = money(if (mulDivOp == '*') cur * factor else cur / factor)
+                    onInputChange(money(if (mulDivOp == '*') cur * factor else cur / factor))
                     showMulDivDialog = false
                     focus.requestFocus()
                 }) { Text("Apply") }
@@ -240,7 +300,7 @@ private fun TapeCalculator(onSaved: () -> Unit) {
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("Save tape") },
+            title = { Text(if (editingId != null) "Update tape" else "Save tape") },
             text = {
                 OutlinedTextField(
                     value = saveLabel,
@@ -256,20 +316,31 @@ private fun TapeCalculator(onSaved: () -> Unit) {
                     val label = saveLabel
                     scope.launch {
                         withContext(Dispatchers.IO) {
-                            dao.insert(
-                                SavedCalc(
-                                    dateMillis = System.currentTimeMillis(),
-                                    amounts = SavedCalc.pack(snapshot),
-                                    total = snapshot.sum(),
-                                    label = label
+                            if (editingId != null) {
+                                dao.update(
+                                    SavedCalc(
+                                        id = editingId,
+                                        dateMillis = System.currentTimeMillis(),
+                                        amounts = SavedCalc.pack(snapshot),
+                                        total = snapshot.sum(),
+                                        label = label
+                                    )
                                 )
-                            )
+                            } else {
+                                dao.insert(
+                                    SavedCalc(
+                                        dateMillis = System.currentTimeMillis(),
+                                        amounts = SavedCalc.pack(snapshot),
+                                        total = snapshot.sum(),
+                                        label = label
+                                    )
+                                )
+                            }
                         }
-                        entries.clear()
                         showSaveDialog = false
                         onSaved()
                     }
-                }) { Text("Save") }
+                }) { Text(if (editingId != null) "Update" else "Save") }
             },
             dismissButton = { OutlinedButton(onClick = { showSaveDialog = false }) { Text("Cancel") } }
         )
@@ -277,7 +348,7 @@ private fun TapeCalculator(onSaved: () -> Unit) {
 }
 
 @Composable
-private fun SavedCalcsList() {
+private fun SavedCalcsList(onEdit: (SavedCalc) -> Unit) {
     val context = LocalContext.current
     val dao = remember { AppDatabase.get(context).savedCalcDao() }
     val scope = rememberCoroutineScope()
@@ -300,7 +371,12 @@ private fun SavedCalcsList() {
                     )
                     Text(dateFmt.format(Date(calc.dateMillis)), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Total: ${money(calc.total)}", style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = { onEdit(calc) }) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Edit")
+                        }
                         TextButton(onClick = {
                             val lines = buildString {
                                 if (calc.label.isNotBlank()) appendLine(calc.label)
@@ -315,12 +391,12 @@ private fun SavedCalcsList() {
                             context.startActivity(Intent.createChooser(intent, "Share tape"))
                         }) {
                             Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text("Share")
                         }
                         TextButton(onClick = { confirmDeleteId = calc.id }) {
                             Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(4.dp))
                             Text("Delete")
                         }
                     }
