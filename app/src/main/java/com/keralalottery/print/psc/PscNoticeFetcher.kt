@@ -23,6 +23,20 @@ object PscNoticeFetcher {
 
     private const val BASE_URL = "https://www.keralapsc.gov.in"
 
+    // The site's WAF has been seen returning HTTP 403 for a bare "Mozilla/5.0 ..." User-Agent
+    // with no other headers - it reads as a bot even though the exact same request succeeds from
+    // a plain desktop/curl client elsewhere. A full, versioned mobile Chrome UA plus the
+    // Accept/Accept-Language headers a real browser always sends makes the request look like an
+    // actual phone visiting the page.
+    private const val MOBILE_USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/126.0.0.0 Mobile Safari/537.36"
+
+    private fun Request.Builder.withBrowserHeaders(): Request.Builder = this
+        .header("User-Agent", MOBILE_USER_AGENT)
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.9")
+
     private val ROW_REGEX = Regex("""<tr>([\s\S]*?)</tr>""")
     private val TYPE_REGEX = Regex("""views-field-type"[^>]*>\s*([^<]*?)\s*</td>""")
     private val TITLE_REGEX = Regex("""views-field-title"[^>]*>\s*([^<]*?)\s*</td>""")
@@ -32,7 +46,7 @@ object PscNoticeFetcher {
     fun fetchLatest(): List<PscNotice> {
         val request = Request.Builder()
             .url("$BASE_URL/latest")
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .withBrowserHeaders()
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Could not reach the Kerala PSC site (HTTP ${response.code}).")
@@ -60,7 +74,7 @@ object PscNoticeFetcher {
     fun downloadPdf(url: String): ByteArray {
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .withBrowserHeaders()
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) error("Could not download the PDF (HTTP ${response.code}).")

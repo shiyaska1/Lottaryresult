@@ -29,16 +29,22 @@ fun PscScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var notices by remember { mutableStateOf<List<PscNotice>>(emptyList()) }
+    // Seeded from the on-disk cache so the tab shows the last known notices immediately, instead
+    // of a blank list, while a fresh fetch runs in the background.
+    var notices by remember { mutableStateOf(PscNoticeStore.loadCached(context)) }
     var state by remember { mutableStateOf<PscFetchState>(PscFetchState.Loading) }
 
     fun refresh() {
         state = PscFetchState.Loading
         scope.launch {
             state = try {
-                notices = withContext(Dispatchers.IO) { PscNoticeFetcher.fetchLatest() }
+                val fetched = withContext(Dispatchers.IO) { PscNoticeFetcher.fetchLatest() }
+                notices = fetched
+                withContext(Dispatchers.IO) { PscNoticeStore.save(context, fetched) }
                 PscFetchState.Done
             } catch (e: Exception) {
+                // Deliberately don't clear `notices` here - a transient block/network failure
+                // should still leave the last successfully fetched list on screen.
                 PscFetchState.Error(e.message ?: "Could not fetch PSC notices.")
             }
         }
@@ -67,7 +73,11 @@ fun PscScreen() {
                 Text("Fetching latest notices…")
             }
             is PscFetchState.Error -> Column {
-                Text("Error: ${s.message}", color = MaterialTheme.colorScheme.error)
+                Text(
+                    if (notices.isEmpty()) "Error: ${s.message}"
+                    else "Could not refresh (showing the last saved list): ${s.message}",
+                    color = MaterialTheme.colorScheme.error
+                )
                 TextButton(onClick = { refresh() }) { Text("Retry") }
             }
             PscFetchState.Done -> Unit
