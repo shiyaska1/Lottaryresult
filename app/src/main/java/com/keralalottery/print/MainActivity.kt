@@ -33,6 +33,7 @@ import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
+import com.keralalottery.print.psc.PscScreen
 import com.keralalottery.print.update.AppUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -88,7 +89,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class RootTab(val label: String) { LOTTERY("Lottery Result"), GOLD("Gold Rate") }
+private enum class RootTab(val label: String) { LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC") }
 
 @Composable
 private fun RootTabs() {
@@ -103,6 +104,7 @@ private fun RootTabs() {
             when (tab) {
                 RootTab.LOTTERY -> LotteryPrintApp()
                 RootTab.GOLD -> GoldRateScreen()
+                RootTab.PSC -> PscScreen()
             }
         }
     }
