@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.keralalottery.print.data.AppPrefs
+import com.keralalottery.print.gold.GoldRateScreen
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
@@ -69,7 +70,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     var licensed by remember { mutableStateOf(!needsLicense) }
                     if (licensed) {
-                        LotteryPrintApp()
+                        RootTabs()
                     } else {
                         LicenseScreen(onActivated = { licensed = true })
                     }
@@ -84,6 +85,26 @@ class MainActivity : ComponentActivity() {
         // update actually mandatory: backing out of the Play update screen just returns here
         // and immediately re-blocks, instead of leaving the user on the old build.
         AppUpdater.check(this)
+    }
+}
+
+private enum class RootTab(val label: String) { LOTTERY("Lottery Result"), GOLD("Gold Rate") }
+
+@Composable
+private fun RootTabs() {
+    var tab by remember { mutableStateOf(RootTab.LOTTERY) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = tab.ordinal) {
+            RootTab.values().forEach { t ->
+                Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })
+            }
+        }
+        Box(modifier = Modifier.weight(1f)) {
+            when (tab) {
+                RootTab.LOTTERY -> LotteryPrintApp()
+                RootTab.GOLD -> GoldRateScreen()
+            }
+        }
     }
 }
 
