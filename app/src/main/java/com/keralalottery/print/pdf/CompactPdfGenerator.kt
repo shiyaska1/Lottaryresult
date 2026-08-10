@@ -22,9 +22,9 @@ object CompactPdfGenerator {
     private const val MARGIN = 20f          // pt; kept small on purpose - no wasted padding
     private const val GUTTER = 10f          // pt between grid columns
     private const val ROW_LEADING = 1.12f   // tight line spacing
-    private const val HEADER_HEIGHT = 84f   // must match the increments drawHeader() applies
+    private const val HEADER_HEIGHT = 56f   // must match the increments draw() applies before the body
     private const val TIER_GAP = 3f
-    private const val START_FONT = 13f
+    private const val START_FONT = 18f
     private const val FLOOR_FONT = 5f
 
     private val A4 = 595f to 842f
@@ -133,18 +133,6 @@ object CompactPdfGenerator {
             color = Color.BLACK
             textAlign = Paint.Align.CENTER
         }
-        val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 10f
-            typeface = Typeface.DEFAULT
-            color = Color.DKGRAY
-            textAlign = Paint.Align.CENTER
-        }
-        val disclaimerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-            color = Color.DKGRAY
-            textAlign = Paint.Align.CENTER
-        }
         val rulePaint = Paint().apply { color = Color.BLACK; strokeWidth = 1.5f }
 
         val h = plan.result.header
@@ -152,33 +140,21 @@ object CompactPdfGenerator {
         y += 20f
         canvas.drawText(plan.companyName.ifBlank { " " }, centerX, y, titlePaint)
         y += 18f
+        // Just enough to identify the draw - no venue/time/disclaimer captions eating page space.
         val lotteryLine = listOfNotNull(
             h.lotteryName.ifBlank { null },
             h.drawNumber.ifBlank { null }?.let { "No. $it" },
-            "DRAW"
-        ).joinToString("  ")
+            h.drawDate.ifBlank { null }
+        ).joinToString("   ")
         canvas.drawText(lotteryLine, centerX, y, subPaint)
-        y += 14f
-        val metaLine = buildString {
-            append(listOfNotNull(h.drawDate.ifBlank { null }, h.drawTime.ifBlank { null }).joinToString("   "))
-            if (h.venue.isNotBlank()) {
-                if (isNotEmpty()) append("   ")
-                append(h.venue)
-            }
-        }
-        canvas.drawText(metaLine, centerX, y, metaPaint)
-        y += 12f
-        canvas.drawText(
-            "Reprint of the official result — please verify against the Kerala Government Gazette.",
-            centerX, y, disclaimerPaint
-        )
         y += 8f
         canvas.drawLine(MARGIN, y, pageW - MARGIN, y, rulePaint)
-        y += 12f
+        y += 10f
 
+        // Everything below is solid black only - this is meant for a black-and-white laser
+        // printer, so color is just wasted ink risk / inconsistent grayscale rendering.
         val numberPaint = numberPaint(plan.numberFontSize)
         val labelPaint = labelPaint(plan.numberFontSize)
-        val consolationPaint = Paint(numberPaint).apply { color = Color.rgb(150, 0, 0) }
         val leftX = MARGIN
 
         for (tr in plan.tierRows) {
@@ -188,10 +164,7 @@ object CompactPdfGenerator {
             y += (plan.numberFontSize + 1f) * ROW_LEADING
 
             if (tr.isWinnerTier) {
-                val bigPaint = Paint(numberPaint).apply {
-                    textSize = plan.numberFontSize + 3f
-                    color = if (tier.label.startsWith("1st")) Color.rgb(150, 0, 0) else Color.BLACK
-                }
+                val bigPaint = Paint(numberPaint).apply { textSize = plan.numberFontSize + 3f }
                 if (tier.winners.isEmpty()) {
                     y += (plan.numberFontSize + 3f) * ROW_LEADING
                 } else {
@@ -201,14 +174,13 @@ object CompactPdfGenerator {
                     }
                 }
             } else {
-                val paintForTier = if (tier.label.startsWith("Consolation")) consolationPaint else numberPaint
                 val columns = tr.columns.coerceAtLeast(1)
                 val colWidth = contentWidth / columns
                 tier.numbers.forEachIndexed { index, num ->
                     val col = index % columns
                     if (col == 0 && index != 0) y += plan.numberFontSize * ROW_LEADING
                     val x = leftX + col * colWidth
-                    canvas.drawText(num, x, y, paintForTier)
+                    canvas.drawText(num, x, y, numberPaint)
                 }
                 if (tier.numbers.isNotEmpty()) y += plan.numberFontSize * ROW_LEADING
             }

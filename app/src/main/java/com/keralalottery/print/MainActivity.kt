@@ -6,6 +6,7 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -218,19 +219,25 @@ private fun LotteryPrintApp() {
             is GenerationState.Ready -> {
                 HorizontalDivider()
                 Text("Preview", style = MaterialTheme.typography.titleMedium)
+                // Actions come before the (often tall) preview image so they stay reachable
+                // without scrolling all the way down past it, near the phone's nav bar.
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = {
+                        val name = "Lottery_Result_${System.currentTimeMillis()}.pdf"
+                        PdfPrinter.saveToDownloads(context, s.file, name)
+                        Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Download PDF")
+                    }
+                    OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
+                        Text("Share")
+                    }
+                }
                 Image(
                     bitmap = s.preview.asImageBitmap(),
                     contentDescription = "Generated result preview",
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = { PdfPrinter.print(context, s.file, "Lottery Result") }) {
-                        Text("Print")
-                    }
-                    OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
-                        Text("Share / Save")
-                    }
-                }
             }
             GenerationState.Idle -> Unit
         }

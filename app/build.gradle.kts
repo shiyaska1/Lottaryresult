@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.keralalottery.print"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
@@ -50,6 +50,14 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        // AGP defaults to storing dex uncompressed once minSdk >= 28 (faster install, much
+        // bigger APK file). This app is a small side-loaded utility handed out as a direct
+        // download, so a compact file matters more than shaving install time.
+        dex {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
@@ -71,7 +79,7 @@ dependencies {
     // rows/columns come out in reading order instead of internal PDF draw order).
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
-    // Fetches the results listing + latest-draw PDF from result.keralalotteries.com.
+    // Fetches the results listing + latest-draw PDF from the official government portal.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
