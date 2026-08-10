@@ -1,9 +1,9 @@
 package com.keralalottery.print.diary
 
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,8 +13,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,9 +30,21 @@ import com.keralalottery.print.data.DiaryEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private fun shareEntryIntent(entry: DiaryEntry): Intent {
+    val text = buildString {
+        if (entry.title.isNotBlank()) appendLine(entry.title)
+        if (entry.body.isNotBlank()) append(entry.body)
+    }
+    return Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text.trim())
+    }
+}
 
 @Composable
 fun DiaryScreen() {
@@ -79,16 +94,18 @@ private fun DiaryListScreen(onOpen: (Long) -> Unit, onNew: () -> Unit) {
                 items(entries, key = { it.id }) { entry ->
                     ElevatedCard(onClick = { onOpen(entry.id) }, modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                entry.title.ifBlank { "(untitled)" },
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            if (entry.body.isNotBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    entry.body,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 2
+                                    entry.title.ifBlank { "(untitled)" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                IconButton(onClick = { context.startActivity(Intent.createChooser(shareEntryIntent(entry), "Share entry")) }) {
+                                    Icon(Icons.Filled.Share, contentDescription = "Share")
+                                }
+                            }
+                            if (entry.body.isNotBlank()) {
+                                Text(entry.body, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
                             }
                             Text(
                                 dateFmt.format(Date(entry.updatedAt)),
@@ -113,10 +130,11 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
     var body by remember { mutableStateOf("") }
     var createdAt by remember { mutableStateOf(System.currentTimeMillis()) }
     var savedAttachments by remember { mutableStateOf<List<DiaryAttachment>>(emptyList()) }
-    // Picked in this session but not yet copied into storage - only committed on Save, so
-    // backing out of a new entry leaves nothing behind.
-    var pendingUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    // Already copied into app storage this session, but not yet linked to a saved entry - only
+    // committed to the database on Save. Backing out without saving deletes these files again.
+    var pendingAttachments by remember { mutableStateOf<List<DiaryAttachment>>(emptyList()) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var cameraTargetFile by remember { mutableStateOf<File?>(null) }
 
     LaunchedEffect(entryId) {
         if (entryId != 0L) {
@@ -130,8 +148,9 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
         }
     }
 
-    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        pendingUris = pendingUris + uris
+    fun back() {
+        pendingAttachments.forEach { AttachmentStore.delete(it) }
+        onDone()
     }
 
     fun save() {
@@ -146,10 +165,7 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
                 }
             }
             withContext(Dispatchers.IO) {
-                pendingUris.forEach { uri ->
-                    val att = AttachmentStore.copyIn(context, uri) ?: return@forEach
-                    dao.insertAttachment(att.copy(entryId = id))
-                }
+                pendingAttachments.forEach { att -> dao.insertAttachment(att.copy(entryId = id)) }
             }
             onDone()
         }
@@ -165,6 +181,11 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
         }
     }
 
+    fun removePendingAttachment(att: DiaryAttachment) {
+        AttachmentStore.delete(att)
+        pendingAttachments = pendingAttachments.filterNot { it === att }
+    }
+
     fun deleteEntry() {
         scope.launch {
             withContext(Dispatchers.IO) {
@@ -173,6 +194,32 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
                 dao.byId(entryId)?.let { dao.delete(it) }
             }
             onDone()
+        }
+    }
+
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val file = cameraTargetFile
+        cameraTargetFile = null
+        if (success && file != null) {
+            pendingAttachments = pendingAttachments + AttachmentStore.fromFile(file, file.name, "image/jpeg")
+        } else {
+            file?.delete()
+        }
+    }
+
+    val pickGallery = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val copied = withContext(Dispatchers.IO) { uris.mapNotNull { AttachmentStore.copyIn(context, it) } }
+            pendingAttachments = pendingAttachments + copied
+        }
+    }
+
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val copied = withContext(Dispatchers.IO) { uris.mapNotNull { AttachmentStore.copyIn(context, it) } }
+            pendingAttachments = pendingAttachments + copied
         }
     }
 
@@ -185,8 +232,16 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = onDone) { Text("Back") }
+            OutlinedButton(onClick = { back() }) { Text("Back") }
             Button(onClick = { save() }, modifier = Modifier.weight(1f)) { Text("Save") }
+            IconButton(onClick = {
+                context.startActivity(
+                    Intent.createChooser(
+                        shareEntryIntent(DiaryEntry(title = title, body = body, createdAt = createdAt, updatedAt = createdAt)),
+                        "Share entry"
+                    )
+                )
+            }) { Icon(Icons.Filled.Share, contentDescription = "Share") }
             if (entryId != 0L) {
                 IconButton(onClick = { confirmDelete = true }) {
                     Icon(Icons.Filled.Delete, contentDescription = "Delete entry")
@@ -210,10 +265,26 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
 
         Text("Attachments", style = MaterialTheme.typography.titleSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                val file = AttachmentStore.newCameraFile(context)
+                cameraTargetFile = file
+                takePicture.launch(AttachmentStore.uriForFile(context, file))
+            }) {
+                Icon(Icons.Filled.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Camera")
+            }
+            OutlinedButton(onClick = {
+                pickGallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+            }) {
+                Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Gallery")
+            }
             OutlinedButton(onClick = { pickFiles.launch(arrayOf("*/*")) }) {
                 Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Add file")
+                Text("File")
             }
         }
         savedAttachments.forEach { att ->
@@ -234,12 +305,8 @@ private fun DiaryEditScreen(entryId: Long, onDone: () -> Unit) {
                 onRemove = { removeSavedAttachment(att) }
             )
         }
-        pendingUris.forEach { uri ->
-            AttachmentRow(
-                name = uri.lastPathSegment ?: "file",
-                onOpen = null,
-                onRemove = { pendingUris = pendingUris.filterNot { it == uri } }
-            )
+        pendingAttachments.forEach { att ->
+            AttachmentRow(name = att.name, onOpen = null, onRemove = { removePendingAttachment(att) })
         }
     }
 

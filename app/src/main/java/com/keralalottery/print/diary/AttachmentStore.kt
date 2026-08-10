@@ -37,13 +37,26 @@ object AttachmentStore {
         }
     }
 
+    /** A fresh, empty JPEG file in app storage - the camera capture target writes here directly. */
+    fun newCameraFile(context: Context): File =
+        File(dir(context), "cam_${System.nanoTime()}.jpg")
+
+    /** Registers an already-written file (e.g. a camera capture) as an attachment. */
+    fun fromFile(file: File, name: String, mime: String): DiaryAttachment =
+        DiaryAttachment(entryId = 0, path = file.absolutePath, name = name, mime = mime, type = typeOf(mime))
+
     fun delete(attachment: DiaryAttachment) {
         runCatching { File(attachment.path).delete() }
     }
 
-    /** A content:// Uri for opening/sharing the attachment. */
+    /** A content:// Uri for opening/sharing/capturing-into the attachment. */
     fun uriFor(context: Context, attachment: DiaryAttachment): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.provider", File(attachment.path))
+
+    /** Same as [uriFor] but for a plain File, before it's wrapped as a DiaryAttachment (the
+     * camera capture target needs a content:// Uri to write into). */
+    fun uriForFile(context: Context, file: File): Uri =
+        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
 
     private fun typeOf(mime: String): AttachmentType = when {
         mime.startsWith("image/") -> AttachmentType.IMAGE
