@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.keralalottery.print.data.AppPrefs
+import com.keralalottery.print.education.EducationScreen
 import com.keralalottery.print.gold.GoldRateScreen
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
@@ -89,13 +90,17 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class RootTab(val label: String) { LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC") }
+private enum class RootTab(val label: String) {
+    LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC"), EDUCATION("Education")
+}
 
 @Composable
 private fun RootTabs() {
     var tab by remember { mutableStateOf(RootTab.LOTTERY) }
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-        TabRow(selectedTabIndex = tab.ordinal) {
+        // Scrollable rather than fixed: with 4+ tabs a fixed TabRow starts cramming/wrapping
+        // labels on a narrow phone, and this only grows as more tabs get added.
+        ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 12.dp) {
             RootTab.values().forEach { t ->
                 Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })
             }
@@ -105,6 +110,7 @@ private fun RootTabs() {
                 RootTab.LOTTERY -> LotteryPrintApp()
                 RootTab.GOLD -> GoldRateScreen()
                 RootTab.PSC -> PscScreen()
+                RootTab.EDUCATION -> EducationScreen()
             }
         }
     }
