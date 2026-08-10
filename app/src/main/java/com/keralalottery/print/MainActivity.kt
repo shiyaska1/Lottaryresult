@@ -150,6 +150,7 @@ private fun LotteryPrintApp() {
     var selectedListing by remember { mutableStateOf<LotteryListing?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
     var useUnofficial by remember { mutableStateOf(false) }
+    var unofficialDayOffset by remember { mutableStateOf(0) }  // 0 = today, -1 = yesterday
 
     var manualUri by remember { mutableStateOf<Uri?>(null) }
     var manualName by remember { mutableStateOf<String?>(null) }
@@ -210,12 +211,6 @@ private fun LotteryPrintApp() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("ലോട്ടറി ഫലം — ഒറ്റ പേജ് പ്രിന്റ്", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "കേരള സർക്കാരിന്റെ ഔദ്യോഗിക ലോട്ടറി പോർട്ടലിൽ നിന്ന് ഏറ്റവും പുതിയ ഫലം നേരിട്ട് " +
-                "എടുത്ത്, നിങ്ങളുടെ സ്വന്തം ഹെഡറോടെ ഒറ്റ പേജിൽ, ഒതുക്കമുള്ള, ബോൾഡ് അക്ഷരത്തിൽ, " +
-                "പ്രിന്റ് ചെയ്യാവുന്ന ഫലം തയ്യാറാക്കുക.",
-            style = MaterialTheme.typography.bodyMedium
-        )
 
         OutlinedTextField(
             value = companyName,
@@ -254,19 +249,18 @@ private fun LotteryPrintApp() {
                 Text("അനൗദ്യോഗിക സ്രോതസ്സ് ഉപയോഗിക്കുക (വേഗത്തിൽ)")
             }
             if (useUnofficial) {
-                Text(
-                    "keralalotteries.net-ൽ നിന്നാണ് ഇത് എടുക്കുന്നത് - ഔദ്യോഗിക PDF തയ്യാറാകുന്നതിന് " +
-                        "മുമ്പ് തന്നെ പലപ്പോഴും ഇവിടെ ഫലം വരാറുണ്ട്. ആദ്യം അപൂർണ്ണമായിരിക്കാം " +
-                        "(ഉദാ: ഒന്നാം സമ്മാനം മാത്രം) - നറുക്കെടുപ്പ് പുരോഗമിക്കുന്നതനുസരിച്ച് ബാക്കി " +
-                        "വരും, അതിനാൽ കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കേണ്ടി വന്നേക്കാം.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                // Always today's actual draw by the fixed weekly schedule, not whatever the
-                // dropdown below happens to have selected - shown here so it's never a surprise
-                // which draw "unofficial" is about to check.
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = unofficialDayOffset == 0, onClick = { unofficialDayOffset = 0 }, label = { Text("ഇന്ന്") })
+                    FilterChip(selected = unofficialDayOffset == -1, onClick = { unofficialDayOffset = -1 }, label = { Text("ഇന്നലെ") })
+                }
+                // Not necessarily today's draw - the chips above let it target yesterday's
+                // instead, so someone can compare the unofficial source against an already-
+                // complete official result. Shown here so it's never a surprise which draw is
+                // about to be checked.
                 val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
-                val target = KeralaLotterySchedule.todaysListing(officialItems)
+                val target = KeralaLotterySchedule.listingForDate(
+                    java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong()), officialItems
+                )
                 if (target != null) {
                     Text(
                         "പരിശോധിക്കുന്നത്: ${target.name} (${target.drawCode}) — ${target.date}",
@@ -318,13 +312,13 @@ private fun LotteryPrintApp() {
             onClick = {
                 val listing = selectedListing ?: return@Button
                 val source = if (useUnofficial) ResultSource.UNOFFICIAL else ResultSource.OFFICIAL
-                // Unofficial is specifically about checking *today's* draw ahead of the
-                // official portal - so it always targets today's actual lottery (by Kerala's
-                // fixed weekly schedule), not whatever the dropdown happens to have selected,
-                // which can still be lagging a day behind if the official listing itself
-                // hasn't posted today's row yet.
+                // Unofficial targets today's (or yesterday's, per the chip above) actual
+                // lottery by Kerala's fixed weekly schedule, not whatever the dropdown happens
+                // to have selected - which can still be lagging a day behind if the official
+                // listing itself hasn't posted today's row yet.
                 val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
-                val unofficialTarget = KeralaLotterySchedule.todaysListing(officialItems) ?: listing
+                val unofficialDate = java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong())
+                val unofficialTarget = KeralaLotterySchedule.listingForDate(unofficialDate, officialItems) ?: listing
                 runGeneration(source) {
                     if (useUnofficial) {
                         try {

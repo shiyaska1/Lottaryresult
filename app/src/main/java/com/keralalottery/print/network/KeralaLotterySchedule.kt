@@ -30,15 +30,29 @@ object KeralaLotterySchedule {
      * lottery's last known draw number + 1 and today's real date, since Kerala's draw numbers
      * for a given lottery always increase by exactly one each week. Returns null only if the
      * official listing has no entry at all for today's lottery to extrapolate from. */
-    fun todaysListing(officialListings: List<LotteryListing>): LotteryListing? {
-        val today = LocalDate.now()
-        val (name, code) = SCHEDULE[today.dayOfWeek] ?: return null
-        val todayDate = today.format(DATE_FMT)
+    fun todaysListing(officialListings: List<LotteryListing>): LotteryListing? =
+        listingForDate(LocalDate.now(), officialListings)
+
+    /** Same idea as [todaysListing] but for any date, not just today - e.g. yesterday, for
+     * comparing the unofficial source against an already-complete official result. The draw
+     * number is extrapolated by how many whole weeks [date] is from the closest known draw of
+     * that same lottery (backwards for a past date, forwards for a future one), since a given
+     * lottery's draw number always steps by exactly one per week. */
+    fun listingForDate(date: LocalDate, officialListings: List<LotteryListing>): LotteryListing? {
+        val (name, code) = SCHEDULE[date.dayOfWeek] ?: return null
+        val targetDate = date.format(DATE_FMT)
 
         val known = officialListings.find { it.drawCode.startsWith("$code-") } ?: return null
-        if (known.date == todayDate) return known
+        if (known.date == targetDate) return known
+
+        val knownDate = runCatching { LocalDate.parse(known.date, DATE_FMT) }.getOrNull() ?: return null
+        val dayGap = java.time.temporal.ChronoUnit.DAYS.between(knownDate, date)
+        if (dayGap % 7 != 0L) return null
+        val weekOffset = dayGap / 7
 
         val num = known.drawCode.substringAfter('-').toIntOrNull() ?: return null
-        return known.copy(name = name, drawCode = "$code-${num + 1}", date = todayDate)
+        val targetNum = num + weekOffset
+        if (targetNum <= 0) return null
+        return known.copy(name = name, drawCode = "$code-$targetNum", date = targetDate)
     }
 }
