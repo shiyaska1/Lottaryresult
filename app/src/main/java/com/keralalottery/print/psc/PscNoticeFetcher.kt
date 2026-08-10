@@ -55,4 +55,16 @@ object PscNoticeFetcher {
             return notices
         }
     }
+
+    /** Downloads a notice's PDF (rank list, short list, etc.) into memory. Must run off the main thread. */
+    fun downloadPdf(url: String): ByteArray {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) error("Could not download the PDF (HTTP ${response.code}).")
+            return response.body?.bytes() ?: error("Empty PDF response.")
+        }
+    }
 }
