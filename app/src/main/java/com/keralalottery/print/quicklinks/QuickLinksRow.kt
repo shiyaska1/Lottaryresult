@@ -34,6 +34,9 @@ fun QuickLinksRow() {
     val store = remember { QuickLinksStore(context) }
     var packages by remember { mutableStateOf(store.load()) }
     var showPicker by remember { mutableStateOf(false) }
+    // The close icon sits right next to the (much larger) tap target for launching the app in a
+    // tightly-packed scrolling row - easy to hit by accident, so removal needs a confirm step.
+    var pendingRemove by remember { mutableStateOf<String?>(null) }
 
     Row(
         modifier = Modifier
@@ -47,10 +50,7 @@ fun QuickLinksRow() {
             QuickLinkChip(
                 packageName = pkg,
                 onClick = { launchOrInstall(context, pkg) },
-                onRemove = {
-                    store.remove(pkg)
-                    packages = store.load()
-                }
+                onRemove = { pendingRemove = pkg }
             )
         }
         AssistChip(onClick = { showPicker = true }, label = { Text("+ Add") })
@@ -65,6 +65,24 @@ fun QuickLinksRow() {
                 packages = store.load()
                 showPicker = false
             }
+        )
+    }
+
+    val toRemove = pendingRemove
+    if (toRemove != null) {
+        val label = remember(toRemove) { appLabel(context, toRemove) }
+        AlertDialog(
+            onDismissRequest = { pendingRemove = null },
+            title = { Text("Remove quick link?") },
+            text = { Text("Remove \"$label\" from your quick links? You can add it back any time.") },
+            confirmButton = {
+                Button(onClick = {
+                    store.remove(toRemove)
+                    packages = store.load()
+                    pendingRemove = null
+                }) { Text("Remove") }
+            },
+            dismissButton = { OutlinedButton(onClick = { pendingRemove = null }) { Text("Cancel") } }
         )
     }
 }
