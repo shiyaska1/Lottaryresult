@@ -143,7 +143,7 @@ private fun LotteryPrintApp() {
     var listingsState by remember { mutableStateOf<ListingsState>(ListingsState.Loading) }
     var selectedListing by remember { mutableStateOf<LotteryListing?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
-    var unofficialUrl by remember { mutableStateOf("") }
+    var useUnofficial by remember { mutableStateOf(false) }
 
     var manualUri by remember { mutableStateOf<Uri?>(null) }
     var manualName by remember { mutableStateOf<String?>(null) }
@@ -241,14 +241,22 @@ private fun LotteryPrintApp() {
         HorizontalDivider()
         Text("Fetch latest official result", style = MaterialTheme.typography.titleMedium)
 
-        OutlinedTextField(
-            value = unofficialUrl,
-            onValueChange = { unofficialUrl = it },
-            label = { Text("Unofficial result link (optional)") },
-            supportingText = { Text("Only if the official result is delayed - paste a mirror site's result page link and it's used instead, same one-page layout either way.") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = useUnofficial, onCheckedChange = { useUnofficial = it })
+                Text("Use unofficial source (faster)")
+            }
+            if (useUnofficial) {
+                Text(
+                    "Pulls from keralalotteries.net instead of the official site, since it often " +
+                        "posts results before the official PDF is ready. It may be incomplete at " +
+                        "first (e.g. only the 1st prize) - it fills in as the draw progresses, so " +
+                        "you may need to fetch again after a while for the rest.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         when (val ls = listingsState) {
             is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -290,23 +298,22 @@ private fun LotteryPrintApp() {
 
         Button(
             onClick = {
-                val url = unofficialUrl.trim()
+                val listing = selectedListing ?: return@Button
                 runGeneration {
-                    if (url.isNotEmpty()) {
+                    if (useUnofficial) {
+                        val url = UnofficialLotteryResultsClient.guessUrl(listing)
                         val html = UnofficialLotteryResultsClient.fetchHtml(url)
                         UnofficialResultParser.parseHtml(html)
                     } else {
-                        val listing = selectedListing ?: error("Select a lottery")
                         val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
                         LotteryPdfParser.parsePdfBytes(context, bytes)
                     }
                 }
             },
-            enabled = (unofficialUrl.isNotBlank() || selectedListing != null) &&
-                genState !is GenerationState.Working && passwordReady,
+            enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (unofficialUrl.isNotBlank()) "Fetch from unofficial link & generate" else "Fetch latest & generate one-page result")
+            Text(if (useUnofficial) "Fetch from unofficial source & generate" else "Fetch latest & generate one-page result")
         }
 
         HorizontalDivider()
