@@ -32,6 +32,7 @@ import com.keralalottery.print.diary.DiaryScreen
 import com.keralalottery.print.education.EducationScreen
 import com.keralalottery.print.gold.GoldRateScreen
 import com.keralalottery.print.model.LotteryResult
+import com.keralalottery.print.network.KeralaLotterySchedule
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
 import com.keralalottery.print.network.UnofficialLotteryResultsClient
@@ -260,6 +261,17 @@ private fun LotteryPrintApp() {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                // Always today's actual draw by the fixed weekly schedule, not whatever the
+                // dropdown below happens to have selected - shown here so it's never a surprise
+                // which draw "unofficial" is about to check.
+                val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
+                val target = KeralaLotterySchedule.todaysListing(officialItems)
+                if (target != null) {
+                    Text(
+                        "Will check: ${target.name} (${target.drawCode}) — ${target.date}",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
             }
         }
 
@@ -305,18 +317,25 @@ private fun LotteryPrintApp() {
             onClick = {
                 val listing = selectedListing ?: return@Button
                 val source = if (useUnofficial) ResultSource.UNOFFICIAL else ResultSource.OFFICIAL
+                // Unofficial is specifically about checking *today's* draw ahead of the
+                // official portal - so it always targets today's actual lottery (by Kerala's
+                // fixed weekly schedule), not whatever the dropdown happens to have selected,
+                // which can still be lagging a day behind if the official listing itself
+                // hasn't posted today's row yet.
+                val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
+                val unofficialTarget = KeralaLotterySchedule.todaysListing(officialItems) ?: listing
                 runGeneration(source) {
                     if (useUnofficial) {
                         try {
-                            val url = UnofficialLotteryResultsClient.guessUrl(listing)
+                            val url = UnofficialLotteryResultsClient.guessUrl(unofficialTarget)
                             val html = UnofficialLotteryResultsClient.fetchHtml(url)
                             UnofficialResultParser.parseHtml(html)
                         } catch (e: Exception) {
                             // The mirror page itself might not be up yet (404) ahead of the
-                            // draw - still print the letterhead from what the official listing
-                            // already tells us, with the same "result coming soon" placeholder
-                            // as a page that loaded but had nothing on it yet.
-                            UnofficialResultParser.waitingResult(listing)
+                            // draw - still print the letterhead from what we already know,
+                            // with the same "result coming soon" placeholder as a page that
+                            // loaded but had nothing on it yet.
+                            UnofficialResultParser.waitingResult(unofficialTarget)
                         }
                     } else {
                         val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
