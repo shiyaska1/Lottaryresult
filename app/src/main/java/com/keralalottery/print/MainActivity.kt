@@ -21,12 +21,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
 import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.pdf.CompactPdfGenerator
+import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -75,6 +77,10 @@ private fun LotteryPrintApp() {
     var manualUri by remember { mutableStateOf<Uri?>(null) }
     var manualName by remember { mutableStateOf<String?>(null) }
 
+    var passwordProtect by remember { mutableStateOf(false) }
+    var password by remember { mutableStateOf("") }
+    val passwordReady = !passwordProtect || password.isNotBlank()
+
     LaunchedEffect(reloadKey) {
         listingsState = ListingsState.Loading
         listingsState = try {
@@ -102,7 +108,13 @@ private fun LotteryPrintApp() {
                     val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                     val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
                     CompactPdfGenerator.generate(parsed, companyName.trim(), outFile)
+                    // Render the preview from the plain PDF first - Android's PdfRenderer can't
+                    // open a password-protected one - then encrypt the file in place afterward,
+                    // so both Download and Share end up with the protected copy.
                     val bitmap = renderFirstPage(outFile)
+                    if (passwordProtect && password.isNotBlank()) {
+                        PdfEncryptor.protect(context, outFile, password)
+                    }
                     Triple(parsed, outFile, bitmap)
                 }
                 genState = GenerationState.Ready(result, file, preview)
@@ -134,6 +146,25 @@ private fun LotteryPrintApp() {
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
+
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = passwordProtect, onCheckedChange = { passwordProtect = it })
+                Text("Password protect PDF")
+            }
+            if (passwordProtect) {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("PDF password") },
+                    isError = password.isBlank(),
+                    supportingText = { if (password.isBlank()) Text("Required to protect the PDF") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        }
 
         HorizontalDivider()
         Text("Fetch latest official result", style = MaterialTheme.typography.titleMedium)
@@ -181,7 +212,7 @@ private fun LotteryPrintApp() {
                             LotteryPdfParser.parsePdfBytes(context, bytes)
                         }
                     },
-                    enabled = selectedListing != null && genState !is GenerationState.Working,
+                    enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Fetch latest & generate one-page result")
@@ -200,7 +231,7 @@ private fun LotteryPrintApp() {
                 val uri = manualUri ?: return@Button
                 runGeneration { LotteryPdfParser.parsePdf(context, uri) }
             },
-            enabled = manualUri != null && genState !is GenerationState.Working,
+            enabled = manualUri != null && genState !is GenerationState.Working && passwordReady,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Generate from imported PDF")
