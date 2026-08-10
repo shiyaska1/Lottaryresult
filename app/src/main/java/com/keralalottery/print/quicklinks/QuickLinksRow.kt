@@ -3,7 +3,6 @@ package com.keralalottery.print.quicklinks
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -91,27 +90,42 @@ private fun QuickLinkChip(packageName: String, onClick: () -> Unit, onRemove: ()
 @Composable
 private fun AppPickerDialog(alreadyAdded: Set<String>, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     val context = LocalContext.current
-    val apps = remember { installedLaunchableApps(context).filterNot { it.packageName in alreadyAdded } }
+    val allApps = remember { installedLaunchableApps(context).filterNot { it.packageName in alreadyAdded } }
+    var query by remember { mutableStateOf("") }
+    val apps = remember(query) {
+        if (query.isBlank()) allApps else allApps.filter { it.label.contains(query, ignoreCase = true) }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         title = { Text("Add a quick link") },
         text = {
-            if (apps.isEmpty()) {
-                Text("Nothing left to add - every installed app is already a quick link.")
-            } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 420.dp)) {
-                    items(apps, key = { it.packageName }) { app ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPick(app.packageName) }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            AppIcon(app.packageName, size = 32.dp)
-                            Text(app.label, style = MaterialTheme.typography.bodyMedium)
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search apps") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                )
+                if (allApps.isEmpty()) {
+                    Text("Nothing left to add - every installed app is already a quick link.")
+                } else if (apps.isEmpty()) {
+                    Text("No installed app matches \"$query\".")
+                } else {
+                    LazyColumn(modifier = Modifier.heightIn(max = 380.dp)) {
+                        items(apps, key = { it.packageName }) { app ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPick(app.packageName) }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                AppIcon(app.packageName, size = 32.dp)
+                                Text(app.label, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }
@@ -141,7 +155,10 @@ private data class LaunchableApp(val packageName: String, val label: String)
 private fun installedLaunchableApps(context: Context): List<LaunchableApp> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-    val resolved = pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+    // No MATCH_DEFAULT_ONLY here: that flag only returns activities declaring the DEFAULT
+    // category, which excludes some real, launcher-visible apps - exactly the "fewer apps
+    // than expected" gap reported after shipping with that flag.
+    val resolved = pm.queryIntentActivities(intent, 0)
     return resolved
         .asSequence()
         .map { it.activityInfo.packageName }

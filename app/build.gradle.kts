@@ -34,7 +34,7 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: gitCommitCount()
-        versionName = "1.5.0"
+        versionName = "1.5.1"
         vectorDrawables { useSupportLibrary = true }
     }
 
