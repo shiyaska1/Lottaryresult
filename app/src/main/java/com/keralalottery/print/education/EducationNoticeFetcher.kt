@@ -36,8 +36,17 @@ object EducationNoticeFetcher {
         "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/126.0.0.0 Mobile Safari/537.36"
 
-    /** Must run off the main thread - downloads ~5MB. */
+    /** Must run off the main thread - downloads ~5MB. Retries once on a connection-level
+     * failure (a slow/flaky mobile connection can fail the first attempt and succeed the next). */
     fun fetchLatest(): List<EducationNotice> {
+        return try {
+            fetchOnce()
+        } catch (e: java.io.IOException) {
+            fetchOnce()
+        }
+    }
+
+    private fun fetchOnce(): List<EducationNotice> {
         val request = Request.Builder()
             .url(URL)
             .header("User-Agent", MOBILE_USER_AGENT)
