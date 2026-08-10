@@ -23,10 +23,10 @@ object PdfPrinter {
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: error("Could not create a download entry.")
+            ?: error("ഡൗൺലോഡ് എൻട്രി ഉണ്ടാക്കാൻ കഴിഞ്ഞില്ല.")
         resolver.openOutputStream(uri)?.use { output ->
             FileInputStream(file).use { input -> input.copyTo(output) }
-        } ?: error("Could not open the download destination.")
+        } ?: error("ഡൗൺലോഡ് ലക്ഷ്യസ്ഥാനം തുറക്കാൻ കഴിഞ്ഞില്ല.")
         return uri
     }
 
@@ -39,10 +39,10 @@ object PdfPrinter {
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: error("Could not create a download entry.")
+            ?: error("ഡൗൺലോഡ് എൻട്രി ഉണ്ടാക്കാൻ കഴിഞ്ഞില്ല.")
         resolver.openOutputStream(uri)?.use { output ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
-        } ?: error("Could not open the download destination.")
+        } ?: error("ഡൗൺലോഡ് ലക്ഷ്യസ്ഥാനം തുറക്കാൻ കഴിഞ്ഞില്ല.")
         return uri
     }
 
@@ -53,6 +53,6 @@ object PdfPrinter {
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "Share result"))
+        context.startActivity(Intent.createChooser(intent, "ഫലം ഷെയർ ചെയ്യുക"))
     }
 }

@@ -47,11 +47,11 @@ object UnofficialLotteryResultsClient {
             if (!response.isSuccessful) {
                 error(
                     if (response.code == 404)
-                        "The unofficial mirror hasn't posted this draw yet - try again in a bit, or use the official source."
-                    else "Could not open the unofficial mirror (HTTP ${response.code})."
+                        "അനൗദ്യോഗിക സൈറ്റ് ഈ ഫലം ഇതുവരെ പ്രസിദ്ധീകരിച്ചിട്ടില്ല - കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക, അല്ലെങ്കിൽ ഔദ്യോഗിക സ്രോതസ്സ് ഉപയോഗിക്കുക."
+                    else "അനൗദ്യോഗിക സൈറ്റ് ലഭ്യമായില്ല (HTTP ${response.code})."
                 )
             }
-            return response.body?.string()?.takeIf { it.isNotBlank() } ?: error("The page had no content.")
+            return response.body?.string()?.takeIf { it.isNotBlank() } ?: error("പേജിൽ ഉള്ളടക്കമില്ല.")
         }
     }
 }

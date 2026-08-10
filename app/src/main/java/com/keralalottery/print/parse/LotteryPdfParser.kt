@@ -38,7 +38,7 @@ object LotteryPdfParser {
     fun parsePdf(context: Context, uri: Uri): LotteryResult {
         ensureLoader(context)
         val text = context.contentResolver.openInputStream(uri)?.use { extractText(it) }
-            ?: error("Could not open the selected PDF")
+            ?: error("തിരഞ്ഞെടുത്ത PDF തുറക്കാൻ കഴിഞ്ഞില്ല")
         return parseText(text)
     }
 
@@ -123,7 +123,7 @@ object LotteryPdfParser {
         // near-blank page with a header and nothing else, which looks like a bug rather than
         // "not published yet". Fail clearly instead so the app can say so.
         if (tiers.isEmpty()) {
-            error("No result found in this PDF yet - the official result may not be published yet. Try again later.")
+            error("ഈ PDF-ൽ ഇതുവരെ ഫലം ഇല്ല - ഔദ്യോഗിക ഫലം പ്രസിദ്ധീകരിച്ചിട്ടില്ലായിരിക്കാം. കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക.")
         }
 
         val header = LotteryHeader(lotteryName, drawNumber, drawDate, drawTime, venue)

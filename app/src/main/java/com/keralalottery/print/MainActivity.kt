@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class RootTab(val label: String) {
-    LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC"), EDUCATION("Education"),
+    LOTTERY("ലോട്ടറി ഫലം"), GOLD("Gold Rate"), PSC("PSC"), EDUCATION("Education"),
     CALCULATOR("Calculator"), DIARY("Diary"), NEWS("News")
 }
 
@@ -165,7 +165,7 @@ private fun LotteryPrintApp() {
             selectedListing = items.firstOrNull()
             ListingsState.Loaded(items)
         } catch (e: Exception) {
-            ListingsState.Error(e.message ?: "Could not load the results list.")
+            ListingsState.Error(e.message ?: "ഫല പട്ടിക ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.")
         }
     }
 
@@ -196,7 +196,7 @@ private fun LotteryPrintApp() {
                 }
                 genState = GenerationState.Ready(result, file, preview, source)
             } catch (e: Exception) {
-                genState = GenerationState.Error(e.message ?: "Something went wrong.")
+                genState = GenerationState.Error(e.message ?: "എന്തോ പിശക് സംഭവിച്ചു.")
             }
         }
     }
@@ -209,18 +209,19 @@ private fun LotteryPrintApp() {
             .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Lottery Result — One-Page Print", style = MaterialTheme.typography.headlineSmall)
+        Text("ലോട്ടറി ഫലം — ഒറ്റ പേജ് പ്രിന്റ്", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Fetch the latest result straight from the Kerala Government's official lottery " +
-                "portal and get back a single, dense, bold, printable page with your own header.",
+            "കേരള സർക്കാരിന്റെ ഔദ്യോഗിക ലോട്ടറി പോർട്ടലിൽ നിന്ന് ഏറ്റവും പുതിയ ഫലം നേരിട്ട് " +
+                "എടുത്ത്, നിങ്ങളുടെ സ്വന്തം ഹെഡറോടെ ഒറ്റ പേജിൽ, ഒതുക്കമുള്ള, ബോൾഡ് അക്ഷരത്തിൽ, " +
+                "പ്രിന്റ് ചെയ്യാവുന്ന ഫലം തയ്യാറാക്കുക.",
             style = MaterialTheme.typography.bodyMedium
         )
 
         OutlinedTextField(
             value = companyName,
             onValueChange = { companyName = it },
-            label = { Text("Header / Company name") },
-            placeholder = { Text("e.g. Sree Lucky Agencies") },
+            label = { Text("ഹെഡർ / കമ്പനി പേര്") },
+            placeholder = { Text("ഉദാ: ശ്രീ ലക്കി ഏജൻസീസ്") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
@@ -228,15 +229,15 @@ private fun LotteryPrintApp() {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = passwordProtect, onCheckedChange = { passwordProtect = it })
-                Text("Password protect PDF")
+                Text("PDF പാസ്‌വേഡ് സംരക്ഷിക്കുക")
             }
             if (passwordProtect) {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("PDF password") },
+                    label = { Text("PDF പാസ്‌വേഡ്") },
                     isError = password.isBlank(),
-                    supportingText = { if (password.isBlank()) Text("Required to protect the PDF") },
+                    supportingText = { if (password.isBlank()) Text("PDF സംരക്ഷിക്കാൻ ആവശ്യമാണ്") },
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
@@ -245,19 +246,19 @@ private fun LotteryPrintApp() {
         }
 
         HorizontalDivider()
-        Text("Fetch latest official result", style = MaterialTheme.typography.titleMedium)
+        Text("ഏറ്റവും പുതിയ ഔദ്യോഗിക ഫലം എടുക്കുക", style = MaterialTheme.typography.titleMedium)
 
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = useUnofficial, onCheckedChange = { useUnofficial = it })
-                Text("Use unofficial source (faster)")
+                Text("അനൗദ്യോഗിക സ്രോതസ്സ് ഉപയോഗിക്കുക (വേഗത്തിൽ)")
             }
             if (useUnofficial) {
                 Text(
-                    "Pulls from keralalotteries.net instead of the official site, since it often " +
-                        "posts results before the official PDF is ready. It may be incomplete at " +
-                        "first (e.g. only the 1st prize) - it fills in as the draw progresses, so " +
-                        "you may need to fetch again after a while for the rest.",
+                    "keralalotteries.net-ൽ നിന്നാണ് ഇത് എടുക്കുന്നത് - ഔദ്യോഗിക PDF തയ്യാറാകുന്നതിന് " +
+                        "മുമ്പ് തന്നെ പലപ്പോഴും ഇവിടെ ഫലം വരാറുണ്ട്. ആദ്യം അപൂർണ്ണമായിരിക്കാം " +
+                        "(ഉദാ: ഒന്നാം സമ്മാനം മാത്രം) - നറുക്കെടുപ്പ് പുരോഗമിക്കുന്നതനുസരിച്ച് ബാക്കി " +
+                        "വരും, അതിനാൽ കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കേണ്ടി വന്നേക്കാം.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -268,7 +269,7 @@ private fun LotteryPrintApp() {
                 val target = KeralaLotterySchedule.todaysListing(officialItems)
                 if (target != null) {
                     Text(
-                        "Will check: ${target.name} (${target.drawCode}) — ${target.date}",
+                        "പരിശോധിക്കുന്നത്: ${target.name} (${target.drawCode}) — ${target.date}",
                         style = MaterialTheme.typography.labelMedium
                     )
                 }
@@ -279,11 +280,11 @@ private fun LotteryPrintApp() {
             is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Loading lottery list…")
+                Text("ലോട്ടറി പട്ടിക ലോഡ് ചെയ്യുന്നു…")
             }
             is ListingsState.Error -> Column {
-                Text("Error: ${ls.message}", color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { reloadKey++ }) { Text("Retry") }
+                Text("പിശക്: ${ls.message}", color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { reloadKey++ }) { Text("വീണ്ടും ശ്രമിക്കുക") }
             }
             is ListingsState.Loaded -> {
                 var expanded by remember { mutableStateOf(false) }
@@ -292,7 +293,7 @@ private fun LotteryPrintApp() {
                         value = selectedListing?.let { "${it.name} (${it.drawCode}) — ${it.date}" } ?: "",
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Lottery") },
+                        label = { Text("ലോട്ടറി") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                         modifier = Modifier
                             .menuAnchor(MenuAnchorType.PrimaryNotEditable)
@@ -346,15 +347,15 @@ private fun LotteryPrintApp() {
             enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (useUnofficial) "Fetch from unofficial source & generate" else "Fetch latest & generate one-page result")
+            Text(if (useUnofficial) "അനൗദ്യോഗിക സ്രോതസ്സിൽ നിന്ന് എടുത്ത് തയ്യാറാക്കുക" else "ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
         }
 
         HorizontalDivider()
-        Text("Or import a PDF file manually", style = MaterialTheme.typography.titleMedium)
+        Text("അല്ലെങ്കിൽ ഒരു PDF ഫയൽ നേരിട്ട് ചേർക്കുക", style = MaterialTheme.typography.titleMedium)
         Button(onClick = { pickPdf.launch(arrayOf("application/pdf")) }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (manualName == null) "Choose official result PDF" else "Change PDF")
+            Text(if (manualName == null) "ഔദ്യോഗിക ഫല PDF തിരഞ്ഞെടുക്കുക" else "PDF മാറ്റുക")
         }
-        manualName?.let { Text("Selected: $it", style = MaterialTheme.typography.bodySmall) }
+        manualName?.let { Text("തിരഞ്ഞെടുത്തത്: $it", style = MaterialTheme.typography.bodySmall) }
         Button(
             onClick = {
                 val uri = manualUri ?: return@Button
@@ -363,7 +364,7 @@ private fun LotteryPrintApp() {
             enabled = manualUri != null && genState !is GenerationState.Working && passwordReady,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Generate from imported PDF")
+            Text("ചേർത്ത PDF-ൽ നിന്ന് തയ്യാറാക്കുക")
         }
 
         when (val s = genState) {
@@ -372,13 +373,13 @@ private fun LotteryPrintApp() {
                 contentAlignment = Alignment.Center
             ) { CircularProgressIndicator() }
             is GenerationState.Error -> Text(
-                "Error: ${s.message}",
+                "പിശക്: ${s.message}",
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium
             )
             is GenerationState.Ready -> {
                 HorizontalDivider()
-                Text("Preview", style = MaterialTheme.typography.titleMedium)
+                Text("പ്രിവ്യൂ", style = MaterialTheme.typography.titleMedium)
                 SourceBadge(source = s.source, tierCount = s.result.tiers.size)
                 // Actions come before the (often tall) preview image so they stay reachable
                 // without scrolling all the way down past it, near the phone's nav bar.
@@ -389,25 +390,25 @@ private fun LotteryPrintApp() {
                     Button(onClick = {
                         val name = "Lottery_Result_${System.currentTimeMillis()}.pdf"
                         PdfPrinter.saveToDownloads(context, s.file, name)
-                        Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "ഡൗൺലോഡ്‌സിലേക്ക് സേവ് ചെയ്തു", Toast.LENGTH_SHORT).show()
                     }) {
                         Text("PDF")
                     }
                     OutlinedButton(onClick = {
                         val name = "Lottery_Result_${System.currentTimeMillis()}.jpg"
                         PdfPrinter.saveJpgToDownloads(context, s.preview, name)
-                        Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "ഡൗൺലോഡ്‌സിലേക്ക് സേവ് ചെയ്തു", Toast.LENGTH_SHORT).show()
                     }) {
                         Text("JPG")
                     }
                     OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
-                        Text("Share")
+                        Text("ഷെയർ ചെയ്യുക")
                     }
                 }
                 var viewingFullScreen by remember { mutableStateOf(false) }
                 Image(
                     bitmap = s.preview.asImageBitmap(),
-                    contentDescription = "Generated result preview - tap to zoom in and verify each number",
+                    contentDescription = "തയ്യാറാക്കിയ ഫലത്തിന്റെ പ്രിവ്യൂ - ഓരോ നമ്പറും സൂം ചെയ്ത് പരിശോധിക്കാൻ ടാപ്പ് ചെയ്യുക",
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp)
@@ -428,11 +429,11 @@ private fun LotteryPrintApp() {
 @Composable
 private fun SourceBadge(source: ResultSource, tierCount: Int) {
     val (text, color) = when (source) {
-        ResultSource.OFFICIAL -> "Official government portal" to MaterialTheme.colorScheme.primary
-        ResultSource.IMPORTED -> "Manually imported PDF" to MaterialTheme.colorScheme.primary
+        ResultSource.OFFICIAL -> "ഔദ്യോഗിക സർക്കാർ പോർട്ടൽ" to MaterialTheme.colorScheme.primary
+        ResultSource.IMPORTED -> "നേരിട്ട് ചേർത്ത PDF" to MaterialTheme.colorScheme.primary
         ResultSource.UNOFFICIAL -> (
-            if (tierCount == 0) "Unofficial source (keralalotteries.net) - not announced yet, check back soon"
-            else "Unofficial source (keralalotteries.net) - $tierCount prize tier${if (tierCount == 1) "" else "s"} found, may still be incomplete"
+            if (tierCount == 0) "അനൗദ്യോഗിക സ്രോതസ്സ് (keralalotteries.net) - ഇതുവരെ പ്രഖ്യാപിച്ചിട്ടില്ല, കുറച്ച് കഴിഞ്ഞ് നോക്കുക"
+            else "അനൗദ്യോഗിക സ്രോതസ്സ് (keralalotteries.net) - $tierCount സമ്മാന വിഭാഗ${if (tierCount == 1) "ം" else "ങ്ങൾ"} കണ്ടെത്തി, അപൂർണ്ണമാകാം"
             ) to MaterialTheme.colorScheme.error
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -442,7 +443,7 @@ private fun SourceBadge(source: ResultSource, tierCount: Int) {
                 .background(color, shape = androidx.compose.foundation.shape.CircleShape)
         )
         Spacer(Modifier.width(6.dp))
-        Text("Source: $text", style = MaterialTheme.typography.labelMedium, color = color)
+        Text("സ്രോതസ്സ്: $text", style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 

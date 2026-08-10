@@ -61,8 +61,8 @@ object OfficialLotteryResultsClient {
     fun fetchLatestDraws(): List<LotteryListing> {
         val request = Request.Builder().url(LISTING_URL).header("User-Agent", USER_AGENT).build()
         val html = client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("Could not reach the official results site (HTTP ${response.code}).")
-            response.body?.string() ?: error("Empty response from the official results site.")
+            if (!response.isSuccessful) error("ഔദ്യോഗിക ഫല സൈറ്റ് ലഭ്യമായില്ല (HTTP ${response.code}).")
+            response.body?.string() ?: error("ഔദ്യോഗിക ഫല സൈറ്റിൽ നിന്ന് പ്രതികരണം ലഭിച്ചില്ല.")
         }
 
         val seen = LinkedHashMap<String, LotteryListing>()
@@ -78,7 +78,7 @@ object OfficialLotteryResultsClient {
             }
         }
         if (seen.isEmpty()) {
-            error("Could not find any results on the official site - its page layout may have changed.")
+            error("ഔദ്യോഗിക സൈറ്റിൽ ഒരു ഫലവും കണ്ടെത്താനായില്ല - പേജ് രൂപം മാറിയിരിക്കാം.")
         }
         return seen.values.toList()
     }
@@ -88,8 +88,8 @@ object OfficialLotteryResultsClient {
         solveCaptchaChallenge()
         val request = Request.Builder().url("$DOWNLOAD_URL$itemId").header("User-Agent", USER_AGENT).build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("Could not download the result PDF (HTTP ${response.code}).")
-            return response.body?.bytes() ?: error("Empty PDF response.")
+            if (!response.isSuccessful) error("ഫല PDF ഡൗൺലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല (HTTP ${response.code}).")
+            return response.body?.bytes() ?: error("PDF പ്രതികരണം ശൂന്യമായിരുന്നു.")
         }
     }
 
