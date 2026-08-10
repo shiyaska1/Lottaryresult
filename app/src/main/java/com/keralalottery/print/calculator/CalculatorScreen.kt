@@ -95,7 +95,9 @@ private fun TapeCalculator(onSaved: () -> Unit) {
 
     LaunchedEffect(entries.size) { runCatching { scroll.animateScrollTo(scroll.maxValue) } }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Pushes the amount box + operator buttons above the keyboard instead of letting it cover
+    // them - the tape above (weight(1f)) shrinks to make room, same as POS billing's CalculatorDialog.
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         Box(
             modifier = Modifier.fillMaxWidth().weight(1f)
                 .background(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.shapes.medium)
