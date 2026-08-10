@@ -39,8 +39,7 @@ object CompactPdfGenerator {
     private const val CEILING_FONT = 48f    // a near-empty result grows text up to this, not just a modest default
     private const val MIN_FONT = 2f         // technical floor only - real draws fit well above this
     private const val FOOTER_HEIGHT = 16f   // reserved so body content never sits under the footer note
-    private const val FOOTER_TEXT =
-        "ഒരു പേജ് പ്രിന്റ് അല്ലെങ്കിൽ വാട്സ്ആപ്പ് വേണമെങ്കിൽ ബന്ധപ്പെടുക: 9961128378"
+    private const val FOOTER_TEXT = "വാട്സ്ആപ്പിൽ ബന്ധപ്പെടുക: 9961128378"
 
     private val A4 = 595f to 842f
 
