@@ -403,8 +403,10 @@ private fun SourceBadge(source: ResultSource, tierCount: Int) {
     val (text, color) = when (source) {
         ResultSource.OFFICIAL -> "Official government portal" to MaterialTheme.colorScheme.primary
         ResultSource.IMPORTED -> "Manually imported PDF" to MaterialTheme.colorScheme.primary
-        ResultSource.UNOFFICIAL -> "Unofficial source (keralalotteries.net) - $tierCount prize tier${if (tierCount == 1) "" else "s"} found, may still be incomplete" to
-            MaterialTheme.colorScheme.error
+        ResultSource.UNOFFICIAL -> (
+            if (tierCount == 0) "Unofficial source (keralalotteries.net) - not announced yet, check back soon"
+            else "Unofficial source (keralalotteries.net) - $tierCount prize tier${if (tierCount == 1) "" else "s"} found, may still be incomplete"
+            ) to MaterialTheme.colorScheme.error
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(

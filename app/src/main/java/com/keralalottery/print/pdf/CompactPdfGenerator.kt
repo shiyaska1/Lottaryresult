@@ -43,6 +43,9 @@ object CompactPdfGenerator {
     // Extra reserved height for the unofficial-source warning line, on top of FOOTER_HEIGHT.
     private const val UNOFFICIAL_NOTE_HEIGHT = 13f
     private const val UNOFFICIAL_NOTE_TEXT = "UNOFFICIAL RESULT — WAIT FOR THE FINAL OFFICIAL ANNOUNCEMENT"
+    // Shown in the body when the unofficial page exists for today's draw but has no prize
+    // tiers on it yet - published early, ahead of the draw itself.
+    private const val WAITING_TEXT = "ഫലം ഉടൻ വരും"
 
     private val A4 = 595f to 842f
 
@@ -294,6 +297,23 @@ object CompactPdfGenerator {
 
         // Same ascent-aware gap plan() budgeted for, so the first line never touches the rule.
         y += -labelPaint.fontMetrics.ascent + 3f
+
+        if (plan.tierRows.isEmpty()) {
+            // The unofficial page exists for today's draw but nothing's been announced yet -
+            // say so plainly instead of leaving the body blank, centered in the space the
+            // tiers would otherwise fill.
+            val footerHeight = FOOTER_HEIGHT + if (plan.isUnofficial) UNOFFICIAL_NOTE_HEIGHT else 0f
+            val bodyBottom = pageH - MARGIN - footerHeight
+            val waitingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 26f
+                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                color = Color.BLACK
+                textAlign = Paint.Align.CENTER
+            }
+            val fm = waitingPaint.fontMetrics
+            val baseline = y + (bodyBottom - y) / 2f - (fm.ascent + fm.descent) / 2f
+            drawFit(canvas, WAITING_TEXT, centerX, baseline, contentWidth, waitingPaint)
+        }
 
         for (tr in plan.tierRows) {
             val tier = tr.tier

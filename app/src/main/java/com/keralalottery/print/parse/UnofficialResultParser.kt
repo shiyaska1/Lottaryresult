@@ -74,7 +74,13 @@ object UnofficialResultParser {
             current.content.append(line).append(' ')
         }
 
-        if (tiers.isEmpty()) error("Could not find any prize tiers on that page - check the link is a result page.")
+        // No tiers at all: either this genuinely isn't a result page (header never matched
+        // either, so nothing here is trustworthy - a real error), or it's the right page for
+        // today's draw, published early, with the draw simply not announced yet - in which
+        // case an empty tier list is the correct, honest answer, not a failure.
+        if (tiers.isEmpty() && lotteryName.isBlank()) {
+            error("Could not find any prize tiers on that page - check the link is a result page.")
+        }
 
         val prizeTiers = tiers.map { p ->
             val text = p.content.toString().trim().replace(Regex("\\s+"), " ")
