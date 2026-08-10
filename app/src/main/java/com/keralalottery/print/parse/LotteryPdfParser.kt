@@ -5,7 +5,6 @@ import android.net.Uri
 import com.keralalottery.print.model.LotteryHeader
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.model.PrizeTier
-import com.keralalottery.print.model.Winner
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -27,16 +26,12 @@ object LotteryPdfParser {
     private var loaderInitialized = false
 
     private val TIER_START = Regex("""^(\d+(?:st|nd|rd|th)|Cons)\s*Prize\s*-?\s*Rs\s*:\s*(.*)$""")
-    private val WINNER = Regex("""(?:\d+\)\s*)?([A-Z]{1,3})\s?(\d{4,6})\s*\(([^)]*)\)""")
     private val FOOTER_LINE = Regex("""^\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}.*Page\s+\d+""")
     private val DRAW_LINE = Regex(
         """^(.+?LOTTERY)\s+NO\.?\s*(\S+)\s+DRAW held on:-\s*([0-9/]+),?\s*(.+)$""",
         RegexOption.IGNORE_CASE
     )
     private val VENUE_LINE = Regex("""^AT\s+.+""")
-    private val PREFIX_TOKEN = Regex("""^[A-Z]{1,3}$""")
-    private val PREFIX_NUMBER_GLUED = Regex("""([A-Z]{1,3})(\d{4,6})""")
-    private val BARE_NUMBER = Regex("""^\d{3,4}$""")
     private const val STOP_MARKER = "the prize winners are advised"
 
     /** Extracts + parses a PDF the user picked from device storage. Must run off the main thread. */
@@ -133,62 +128,7 @@ object LotteryPdfParser {
         fun finalize(): PrizeTier {
             val text = rawContent.toString().trim().replace(Regex("\\s+"), " ")
             val label = if (key == "Cons") "Consolation Prize" else "$key Prize"
-            // Bumper draws sometimes list a lower tier (e.g. 4th) as several named winners on
-            // one line - "1) MA 838733 (IRINJALAKUDA) 2) MB 509385 (PALAKKAD) ..." - instead of
-            // the usual bare last-N-digit list. Detect that by content, not by which tier key it
-            // is: any tier whose text actually contains the "PREFIX NUMBER (PLACE)" pattern gets
-            // parsed as named winners.
-            return when {
-                key == "Cons" -> parseConsolationTier(label, text)
-                WINNER.containsMatchIn(text) -> parseWinnerTier(label, text)
-                else -> parseBareNumberTier(label, text)
-            }
-        }
-
-        private fun parseWinnerTier(label: String, text: String): PrizeTier {
-            val matches = WINNER.findAll(text).toList()
-            val winners = matches.map {
-                Winner(
-                    ticketNumber = "${it.groupValues[1]} ${it.groupValues[2]}",
-                    place = it.groupValues[3].trim()
-                )
-            }
-            val amountEnd = matches.firstOrNull()?.range?.first ?: text.length
-            val amount = text.substring(0, amountEnd).trim()
-            return PrizeTier(label, amount, winners = winners)
-        }
-
-        private fun parseConsolationTier(label: String, text: String): PrizeTier {
-            val spaced = text.replace(PREFIX_NUMBER_GLUED, "$1 $2")
-            val tokens = spaced.split(' ').filter { it.isNotBlank() }
-            var i = 0
-            val amountTokens = mutableListOf<String>()
-            while (i < tokens.size && !PREFIX_TOKEN.matches(tokens[i])) {
-                amountTokens += tokens[i]
-                i++
-            }
-            val numbers = mutableListOf<String>()
-            while (i < tokens.size - 1) {
-                if (PREFIX_TOKEN.matches(tokens[i]) && tokens[i + 1].matches(Regex("^\\d{4,6}$"))) {
-                    numbers += "${tokens[i]} ${tokens[i + 1]}"
-                    i += 2
-                } else {
-                    i++
-                }
-            }
-            return PrizeTier(label, amountTokens.joinToString(" "), numbers = numbers)
-        }
-
-        private fun parseBareNumberTier(label: String, text: String): PrizeTier {
-            val tokens = text.split(' ').filter { it.isNotBlank() }
-            var i = 0
-            val amountTokens = mutableListOf<String>()
-            while (i < tokens.size && !BARE_NUMBER.matches(tokens[i])) {
-                amountTokens += tokens[i]
-                i++
-            }
-            val numbers = tokens.subList(i, tokens.size).filter { BARE_NUMBER.matches(it) }
-            return PrizeTier(label, amountTokens.joinToString(" "), numbers = numbers)
+            return finalizeTier(key, label, text)
         }
     }
 }

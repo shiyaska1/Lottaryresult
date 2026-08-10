@@ -32,8 +32,10 @@ import com.keralalottery.print.gold.GoldRateScreen
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
+import com.keralalottery.print.network.UnofficialLotteryResultsClient
 import com.keralalottery.print.news.NewsScreen
 import com.keralalottery.print.parse.LotteryPdfParser
+import com.keralalottery.print.parse.UnofficialResultParser
 import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
@@ -141,6 +143,7 @@ private fun LotteryPrintApp() {
     var listingsState by remember { mutableStateOf<ListingsState>(ListingsState.Loading) }
     var selectedListing by remember { mutableStateOf<LotteryListing?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
+    var unofficialUrl by remember { mutableStateOf("") }
 
     var manualUri by remember { mutableStateOf<Uri?>(null) }
     var manualName by remember { mutableStateOf<String?>(null) }
@@ -238,6 +241,15 @@ private fun LotteryPrintApp() {
         HorizontalDivider()
         Text("Fetch latest official result", style = MaterialTheme.typography.titleMedium)
 
+        OutlinedTextField(
+            value = unofficialUrl,
+            onValueChange = { unofficialUrl = it },
+            label = { Text("Unofficial result link (optional)") },
+            supportingText = { Text("Only if the official result is delayed - paste a mirror site's result page link and it's used instead, same one-page layout either way.") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
         when (val ls = listingsState) {
             is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
@@ -273,20 +285,28 @@ private fun LotteryPrintApp() {
                         }
                     }
                 }
-                Button(
-                    onClick = {
-                        val listing = selectedListing ?: return@Button
-                        runGeneration {
-                            val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
-                            LotteryPdfParser.parsePdfBytes(context, bytes)
-                        }
-                    },
-                    enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Fetch latest & generate one-page result")
-                }
             }
+        }
+
+        Button(
+            onClick = {
+                val url = unofficialUrl.trim()
+                runGeneration {
+                    if (url.isNotEmpty()) {
+                        val html = UnofficialLotteryResultsClient.fetchHtml(url)
+                        UnofficialResultParser.parseHtml(html)
+                    } else {
+                        val listing = selectedListing ?: error("Select a lottery")
+                        val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
+                        LotteryPdfParser.parsePdfBytes(context, bytes)
+                    }
+                }
+            },
+            enabled = (unofficialUrl.isNotBlank() || selectedListing != null) &&
+                genState !is GenerationState.Working && passwordReady,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (unofficialUrl.isNotBlank()) "Fetch from unofficial link & generate" else "Fetch latest & generate one-page result")
         }
 
         HorizontalDivider()
