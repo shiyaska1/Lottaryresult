@@ -175,7 +175,8 @@ private fun LotteryPrintApp() {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .padding(20.dp)
+            .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Lottery Result — One-Page Print", style = MaterialTheme.typography.headlineSmall)

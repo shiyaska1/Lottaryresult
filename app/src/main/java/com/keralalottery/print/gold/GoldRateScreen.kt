@@ -43,23 +43,31 @@ fun GoldRateScreen() {
 
     var entries by remember { mutableStateOf(GoldRateStore.loadAll(context)) }
     var fetchState by remember { mutableStateOf<FetchState>(FetchState.Loading) }
+    // Tracked separately from fetchState: today's rate (AKGSMA) and the backfilled history
+    // (keralagold.com) are two different network calls, each visibly loading/erroring on its
+    // own instead of one silently swallowing the other's failure.
+    var historyState by remember { mutableStateOf<FetchState>(FetchState.Loading) }
     var period by remember { mutableStateOf(GoldPeriod.THIRTY_DAY) }
     var backgroundUri by remember { mutableStateOf<Uri?>(null) }
 
     fun refresh() {
         fetchState = FetchState.Loading
+        historyState = FetchState.Loading
         scope.launch {
             fetchState = try {
                 val rate = withContext(Dispatchers.IO) { GoldRateFetcher.fetchTodayRatePerGram() }
                 entries = withContext(Dispatchers.IO) { GoldRateStore.recordToday(context, rate) }
-                // Best-effort: fill in past days the app hasn't recorded itself yet. A failure
-                // here (source unreachable/changed) shouldn't turn today's already-fetched rate
-                // into an error screen.
-                withContext(Dispatchers.IO) { runCatching { GoldRateFetcher.fetchHistoryFromKeralaGold() }.getOrNull() }
-                    ?.let { entries = withContext(Dispatchers.IO) { GoldRateStore.mergeMissing(context, it) } }
                 FetchState.Done
             } catch (e: Exception) {
                 FetchState.Error(e.message ?: "Could not fetch today's rate.")
+            }
+
+            historyState = try {
+                val history = withContext(Dispatchers.IO) { GoldRateFetcher.fetchHistoryFromKeralaGold() }
+                entries = withContext(Dispatchers.IO) { GoldRateStore.mergeMissing(context, history) }
+                FetchState.Done
+            } catch (e: Exception) {
+                FetchState.Error(e.message ?: "Could not fetch price history from keralagold.com.")
             }
         }
     }
@@ -77,7 +85,10 @@ fun GoldRateScreen() {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .padding(20.dp)
+            // Extra bottom inset so the last button clears the gesture nav bar on edge-to-edge
+            // (targetSdk 36) devices instead of sitting half-hidden behind it.
+            .navigationBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("22K Gold Rate — Kerala", style = MaterialTheme.typography.headlineSmall)
@@ -106,6 +117,22 @@ fun GoldRateScreen() {
 
         HorizontalDivider()
         Text("Trend", style = MaterialTheme.typography.titleMedium)
+        when (val hs = historyState) {
+            is FetchState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Fetching price history from keralagold.com…", style = MaterialTheme.typography.bodySmall)
+            }
+            is FetchState.Error -> Column {
+                Text(
+                    "Could not fetch full history: ${hs.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                TextButton(onClick = { refresh() }) { Text("Retry") }
+            }
+            FetchState.Done -> Unit
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GoldPeriod.values().forEach { p ->
                 FilterChip(
@@ -173,14 +200,14 @@ private fun RateCard(today: GoldRateEntry, yesterday: GoldRateEntry?) {
     val delta = yesterday?.let { today.ratePerGram - it.ratePerGram }
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(today.date.format(DateTimeFormatter.ofPattern("dd MMM yyyy")), style = MaterialTheme.typography.labelLarge)
+            Text(today.date.format(DateTimeFormatter.ofPattern("dd MMM yyyy")), style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Column {
-                    Text("1 gram", style = MaterialTheme.typography.labelMedium)
+                    Text("1 gram", style = MaterialTheme.typography.titleSmall)
                     Text("₹${indianFormat(today.ratePerGram)}", style = MaterialTheme.typography.headlineMedium)
                 }
                 Column {
-                    Text("8 gram (1 Pavan)", style = MaterialTheme.typography.labelMedium)
+                    Text("8 gram (1 Pavan)", style = MaterialTheme.typography.titleSmall)
                     Text("₹${indianFormat(today.ratePerGram * 8)}", style = MaterialTheme.typography.headlineMedium)
                 }
             }

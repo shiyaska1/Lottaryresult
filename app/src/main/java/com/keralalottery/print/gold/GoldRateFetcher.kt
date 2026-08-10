@@ -36,10 +36,13 @@ object GoldRateFetcher {
         }
     }
 
-    // Grabs everything between the header row (identified by its "Price of 1 Pavan Gold" label,
-    // since the table itself carries no id/class) and the closing </table> tag.
+    // Grabs everything between the header row (identified by its "Price of 1 Pavan Gold (Rs.)"
+    // label, since the table itself carries no id/class) and the closing </table> tag. The
+    // "(Rs.)" suffix matters: the page's intro sentence above the table also says "price of 1
+    // Pavan gold (8Gms, 22Carat)", which would otherwise match first and capture an empty
+    // (wrong) table body.
     private val HISTORY_TABLE_REGEX = Regex(
-        """Price of 1 Pavan Gold[\s\S]*?</tr>([\s\S]*?)</table>""",
+        """Price of 1 Pavan Gold\s*\(Rs\.\)[\s\S]*?</tr>([\s\S]*?)</table>""",
         RegexOption.IGNORE_CASE
     )
     private val HISTORY_ROW_REGEX = Regex("""<tr[^>]*>([\s\S]*?)</tr>""")
