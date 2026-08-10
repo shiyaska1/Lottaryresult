@@ -38,6 +38,9 @@ object CompactPdfGenerator {
     private const val TIER_GAP = 3f
     private const val CEILING_FONT = 48f    // a near-empty result grows text up to this, not just a modest default
     private const val MIN_FONT = 2f         // technical floor only - real draws fit well above this
+    private const val FOOTER_HEIGHT = 16f   // reserved so body content never sits under the footer note
+    private const val FOOTER_TEXT =
+        "ഒരു പേജ് പ്രിന്റ് അല്ലെങ്കിൽ വാട്സ്ആപ്പ് വേണമെങ്കിൽ ബന്ധപ്പെടുക: 9961128378"
 
     private val A4 = 595f to 842f
 
@@ -78,7 +81,7 @@ object CompactPdfGenerator {
     private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
-        val availableHeight = pageH - MARGIN * 2
+        val availableHeight = pageH - MARGIN * 2 - FOOTER_HEIGHT
 
         var fs = CEILING_FONT
         var rows: List<TierRows> = emptyList()
@@ -331,5 +334,15 @@ object CompactPdfGenerator {
             }
             y += TIER_GAP
         }
+
+        // Small fixed footer note, anchored to the page bottom regardless of how much body
+        // content there is - plan() already reserved FOOTER_HEIGHT so it can't collide with it.
+        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 8f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
+            color = Color.BLACK
+            textAlign = Paint.Align.CENTER
+        }
+        drawFit(canvas, FOOTER_TEXT, centerX, pageH - 16f, contentWidth, footerPaint)
     }
 }

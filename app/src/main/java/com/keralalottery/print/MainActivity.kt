@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -252,13 +253,23 @@ private fun LotteryPrintApp() {
                 Text("Preview", style = MaterialTheme.typography.titleMedium)
                 // Actions come before the (often tall) preview image so they stay reachable
                 // without scrolling all the way down past it, near the phone's nav bar.
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
                     Button(onClick = {
                         val name = "Lottery_Result_${System.currentTimeMillis()}.pdf"
                         PdfPrinter.saveToDownloads(context, s.file, name)
                         Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
                     }) {
                         Text("Download PDF")
+                    }
+                    OutlinedButton(onClick = {
+                        val name = "Lottery_Result_${System.currentTimeMillis()}.jpg"
+                        PdfPrinter.saveJpgToDownloads(context, s.preview, name)
+                        Toast.makeText(context, "Saved to Downloads", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("Download JPG")
                     }
                     OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
                         Text("Share")

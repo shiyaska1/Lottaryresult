@@ -3,6 +3,7 @@ package com.keralalottery.print.pdf
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
@@ -10,7 +11,7 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
 
-/** Saves or shares an already-generated single-page PDF file. */
+/** Saves or shares an already-generated single-page PDF file, or its rendered preview image. */
 object PdfPrinter {
 
     /** Copies the PDF into the public Downloads folder so it shows up like any other download. */
@@ -25,6 +26,22 @@ object PdfPrinter {
             ?: error("Could not create a download entry.")
         resolver.openOutputStream(uri)?.use { output ->
             FileInputStream(file).use { input -> input.copyTo(output) }
+        } ?: error("Could not open the download destination.")
+        return uri
+    }
+
+    /** Saves the already-rendered preview bitmap as a JPG into the public Downloads folder. */
+    fun saveJpgToDownloads(context: Context, bitmap: Bitmap, displayName: String): Uri {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Could not create a download entry.")
+        resolver.openOutputStream(uri)?.use { output ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, output)
         } ?: error("Could not open the download destination.")
         return uri
     }
