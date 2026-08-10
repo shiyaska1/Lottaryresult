@@ -4,6 +4,26 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// versionCode = number of commits in the git history, so it rises on every commit with no
+// hand-editing and is always recoverable from git itself (`git rev-list --count <commit>`
+// reproduces the exact versionCode that commit was built with). VERSION_CODE can still override
+// it (e.g. a CI step that already computed it) but by default every build - CI or local -
+// derives the same number from the same commit, so the app version and the git history are one
+// and the same source of truth. Needs full git history (not a shallow clone) to be accurate.
+fun gitCommitCount(): Int {
+    return try {
+        val proc = ProcessBuilder("git", "rev-list", "--count", "HEAD")
+            .directory(rootDir)
+            .redirectErrorStream(true)
+            .start()
+        val out = proc.inputStream.bufferedReader().readText().trim()
+        proc.waitFor()
+        out.toIntOrNull() ?: 1
+    } catch (e: Exception) {
+        1
+    }
+}
+
 android {
     namespace = "com.keralalottery.print"
     compileSdk = 36
@@ -12,7 +32,7 @@ android {
         applicationId = "com.keralalottery.print"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: gitCommitCount()
         versionName = "1.0.0"
         vectorDrawables { useSupportLibrary = true }
     }

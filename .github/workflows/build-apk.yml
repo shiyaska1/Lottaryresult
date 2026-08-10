@@ -12,7 +12,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Full history, not the default shallow clone - build.gradle.kts derives versionCode
+      # from the commit count, which a shallow clone would report as 1 every time.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -30,7 +34,9 @@ jobs:
 
       - name: Set release tag
         id: ver
-        run: echo "tag=v1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        run: |
+          CODE=$(git rev-list --count HEAD)
+          echo "tag=v1.0.$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
