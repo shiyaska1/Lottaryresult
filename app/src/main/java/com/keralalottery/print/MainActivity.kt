@@ -32,6 +32,7 @@ import com.keralalottery.print.gold.GoldRateScreen
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
+import com.keralalottery.print.news.NewsScreen
 import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
@@ -95,7 +96,7 @@ class MainActivity : ComponentActivity() {
 
 private enum class RootTab(val label: String) {
     LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC"), EDUCATION("Education"),
-    CALCULATOR("Calculator"), DIARY("Diary")
+    CALCULATOR("Calculator"), DIARY("Diary"), NEWS("News")
 }
 
 @Composable
@@ -122,6 +123,7 @@ private fun RootTabs() {
                 RootTab.EDUCATION -> EducationScreen()
                 RootTab.CALCULATOR -> CalculatorScreen()
                 RootTab.DIARY -> DiaryScreen()
+                RootTab.NEWS -> NewsScreen()
             }
         }
     }
