@@ -2,4 +2,5 @@
 <paths>
     <cache-path name="generated_pdfs" path="pdfs/" />
     <cache-path name="share_images" path="share/" />
+    <files-path name="diary_attachments" path="diary/" />
 </paths>

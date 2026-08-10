@@ -24,7 +24,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.keralalottery.print.calculator.CalculatorScreen
 import com.keralalottery.print.data.AppPrefs
+import com.keralalottery.print.diary.DiaryScreen
 import com.keralalottery.print.education.EducationScreen
 import com.keralalottery.print.gold.GoldRateScreen
 import com.keralalottery.print.model.LotteryResult
@@ -92,7 +94,8 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class RootTab(val label: String) {
-    LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC"), EDUCATION("Education")
+    LOTTERY("Lottery Result"), GOLD("Gold Rate"), PSC("PSC"), EDUCATION("Education"),
+    CALCULATOR("Calculator"), DIARY("Diary")
 }
 
 @Composable
@@ -117,6 +120,8 @@ private fun RootTabs() {
                 RootTab.GOLD -> GoldRateScreen()
                 RootTab.PSC -> PscScreen()
                 RootTab.EDUCATION -> EducationScreen()
+                RootTab.CALCULATOR -> CalculatorScreen()
+                RootTab.DIARY -> DiaryScreen()
             }
         }
     }

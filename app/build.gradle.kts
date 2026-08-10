@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
 }
 
 // versionCode = number of commits in the git history, so it rises on every commit with no
@@ -33,7 +34,7 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: gitCommitCount()
-        versionName = "1.4.0"
+        versionName = "1.5.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -120,6 +121,11 @@ dependencies {
 
     // Play in-app updates: forces an update as soon as one is published (see AppUpdater).
     implementation("com.google.android.play:app-update-ktx:2.1.0")
+
+    // Local database for Calculator's saved tapes and the Diary tab's entries/attachments.
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
