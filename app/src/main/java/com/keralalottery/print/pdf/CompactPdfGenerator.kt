@@ -40,11 +40,17 @@ object CompactPdfGenerator {
     private const val MIN_FONT = 2f         // technical floor only - real draws fit well above this
     private const val FOOTER_HEIGHT = 16f   // reserved so body content never sits under the footer note
     private const val FOOTER_TEXT = "വാട്സ്ആപ്പിൽ ബന്ധപ്പെടുക: 9961128378"
+    // Extra reserved height for the unofficial-source warning line, on top of FOOTER_HEIGHT.
+    private const val UNOFFICIAL_NOTE_HEIGHT = 13f
+    private const val UNOFFICIAL_NOTE_TEXT = "UNOFFICIAL RESULT — WAIT FOR THE FINAL OFFICIAL ANNOUNCEMENT"
 
     private val A4 = 595f to 842f
 
-    fun generate(result: LotteryResult, companyName: String, outputFile: File): File {
-        val plan = plan(result, companyName, A4)
+    /** [isUnofficial] adds one extra bold warning line above the usual footer note - the only
+     * difference between an official and unofficial page, so the rest of the layout (and the
+     * font-size search) stays identical either way. */
+    fun generate(result: LotteryResult, companyName: String, outputFile: File, isUnofficial: Boolean = false): File {
+        val plan = plan(result, companyName, A4, isUnofficial)
 
         val (pageW, pageH) = plan.pageSize
         val document = PdfDocument()
@@ -68,7 +74,8 @@ object CompactPdfGenerator {
         val companyName: String,
         val result: LotteryResult,
         val numberFontSize: Float,
-        val tierRows: List<TierRows>
+        val tierRows: List<TierRows>,
+        val isUnofficial: Boolean
     )
 
     private fun kindOf(tier: PrizeTier) = when {
@@ -77,10 +84,11 @@ object CompactPdfGenerator {
         else -> Kind.GRID
     }
 
-    private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>): Plan {
+    private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
-        val availableHeight = pageH - MARGIN * 2 - FOOTER_HEIGHT
+        val footerHeight = FOOTER_HEIGHT + if (isUnofficial) UNOFFICIAL_NOTE_HEIGHT else 0f
+        val availableHeight = pageH - MARGIN * 2 - footerHeight
 
         var fs = CEILING_FONT
         var rows: List<TierRows> = emptyList()
@@ -149,7 +157,7 @@ object CompactPdfGenerator {
             fs -= 0.25f
         }
 
-        return Plan(pageSize, companyName, result, fs.coerceAtLeast(MIN_FONT), rows)
+        return Plan(pageSize, companyName, result, fs.coerceAtLeast(MIN_FONT), rows, isUnofficial)
     }
 
     // ---- formatting helpers ------------------------------------------------
@@ -335,7 +343,8 @@ object CompactPdfGenerator {
         }
 
         // Small fixed footer note, anchored to the page bottom regardless of how much body
-        // content there is - plan() already reserved FOOTER_HEIGHT so it can't collide with it.
+        // content there is - plan() already reserved FOOTER_HEIGHT (+ UNOFFICIAL_NOTE_HEIGHT
+        // when applicable) so neither can collide with the body above it.
         val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = 8f
             typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
@@ -343,5 +352,15 @@ object CompactPdfGenerator {
             textAlign = Paint.Align.CENTER
         }
         drawFit(canvas, FOOTER_TEXT, centerX, pageH - 16f, contentWidth, footerPaint)
+
+        if (plan.isUnofficial) {
+            val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 9f
+                typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                color = Color.BLACK
+                textAlign = Paint.Align.CENTER
+            }
+            drawFit(canvas, UNOFFICIAL_NOTE_TEXT, centerX, pageH - 16f - UNOFFICIAL_NOTE_HEIGHT, contentWidth, notePaint)
+        }
     }
 }

@@ -183,7 +183,7 @@ private fun LotteryPrintApp() {
                     val parsed = block()
                     val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                     val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
-                    CompactPdfGenerator.generate(parsed, companyName.trim(), outFile)
+                    CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
                     // Render the preview from the plain PDF first - Android's PdfRenderer can't
                     // open a password-protected one - then encrypt the file in place afterward,
                     // so both Download and Share end up with the protected copy.
