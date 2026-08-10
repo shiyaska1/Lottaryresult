@@ -118,6 +118,14 @@ object LotteryPdfParser {
             current.rawContent.append(line).append(' ')
         }
 
+        // A draw not yet held sometimes still has a PDF up (a placeholder, or last draw's page
+        // not yet replaced) with no prize tiers in it at all - printing that would just be a
+        // near-blank page with a header and nothing else, which looks like a bug rather than
+        // "not published yet". Fail clearly instead so the app can say so.
+        if (tiers.isEmpty()) {
+            error("No result found in this PDF yet - the official result may not be published yet. Try again later.")
+        }
+
         val header = LotteryHeader(lotteryName, drawNumber, drawDate, drawTime, venue)
         return LotteryResult(header, tiers.map { it.finalize() })
     }
