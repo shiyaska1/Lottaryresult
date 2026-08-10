@@ -35,6 +35,7 @@ import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
+import com.keralalottery.print.quicklinks.QuickLinksRow
 import com.keralalottery.print.update.AppUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,6 +106,11 @@ private fun RootTabs() {
                 Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })
             }
         }
+        HorizontalDivider()
+        // Persistent across every tab - quick access to whatever the user reaches for most,
+        // without leaving this app to hunt for it on the home screen.
+        QuickLinksRow()
+        HorizontalDivider()
         Box(modifier = Modifier.weight(1f)) {
             when (tab) {
                 RootTab.LOTTERY -> LotteryPrintApp()
