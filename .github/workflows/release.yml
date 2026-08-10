@@ -1,0 +1,76 @@
+name: Release AAB (Play Store)
+
+# Builds a SIGNED Android App Bundle (.aab) for Google Play, using the upload keystore stored
+# in the repo secrets (see keygen.yml). Falls back to the committed debug keystore if those
+# secrets aren't set, so this still runs (just unsigned-for-Play) before you've generated one.
+# Trigger manually from the Actions tab, or by pushing a version tag
+# (e.g. git tag v1.1.0 && git push origin v1.1.0).
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write   # to publish the .aab as a release asset
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, not the default shallow clone - build.gradle.kts derives versionCode
+      # from the commit count, which a shallow clone would report as 1 every time.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode upload keystore
+        if: ${{ secrets.UPLOAD_STORE_PASSWORD != '' }}
+        env:
+          KS_B64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+        run: echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: Build signed AAB
+        env:
+          UPLOAD_STORE_FILE: ${{ runner.temp }}/upload-keystore.jks
+          UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew bundleRelease --no-daemon --stacktrace
+
+      - name: Set release tag
+        id: ver
+        run: |
+          CODE=$(git rev-list --count HEAD)
+          echo "tag=aab-v1.0.$CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Publish AAB to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: "Lottery Result Print AAB ${{ steps.ver.outputs.tag }}"
+          body: |
+            Signed Play Store App Bundle built from commit ${{ github.sha }}.
+            Upload `app-release.aab` to the Google Play Console.
+          files: app/build/outputs/bundle/release/app-release.aab
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: lottery-result-print-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

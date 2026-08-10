@@ -52,6 +52,11 @@ fun GoldRateScreen() {
             fetchState = try {
                 val rate = withContext(Dispatchers.IO) { GoldRateFetcher.fetchTodayRatePerGram() }
                 entries = withContext(Dispatchers.IO) { GoldRateStore.recordToday(context, rate) }
+                // Best-effort: fill in past days the app hasn't recorded itself yet. A failure
+                // here (source unreachable/changed) shouldn't turn today's already-fetched rate
+                // into an error screen.
+                withContext(Dispatchers.IO) { runCatching { GoldRateFetcher.fetchHistoryFromKeralaGold() }.getOrNull() }
+                    ?.let { entries = withContext(Dispatchers.IO) { GoldRateStore.mergeMissing(context, it) } }
                 FetchState.Done
             } catch (e: Exception) {
                 FetchState.Error(e.message ?: "Could not fetch today's rate.")

@@ -93,7 +93,7 @@ private enum class RootTab(val label: String) { LOTTERY("Lottery Result"), GOLD(
 @Composable
 private fun RootTabs() {
     var tab by remember { mutableStateOf(RootTab.LOTTERY) }
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         TabRow(selectedTabIndex = tab.ordinal) {
             RootTab.values().forEach { t ->
                 Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.label) })

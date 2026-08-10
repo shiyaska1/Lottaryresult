@@ -8,11 +8,12 @@ import java.time.format.DateTimeFormatter
 data class GoldRateEntry(val date: LocalDate, val ratePerGram: Int)
 
 /**
- * Builds the app's own price history one day at a time — there is no single free source that
- * hands back a year of genuine Kerala 22K rates, so instead each day the app is opened we record
- * whatever AKGSMA is quoting right then, and the 15D/30D/6M/1Y views simply show as much of that
- * as has accumulated so far. Re-fetching on the same calendar date overwrites that day's entry
- * (an intraday revision), it never adds a second row for the same day.
+ * Builds the app's own price history day by day — each day the app is opened we record whatever
+ * AKGSMA is quoting right then — and backfills whatever's missing before that from KeralaGold's
+ * table (see [GoldRateFetcher.fetchHistoryFromKeralaGold]), which only publishes the current
+ * month. So the 15D/30D views fill in quickly, while 6M/1Y still just show as much as has
+ * accumulated so far. Re-fetching on the same calendar date overwrites that day's entry (an
+ * intraday revision), it never adds a second row for the same day.
  */
 object GoldRateStore {
     private const val FILE_NAME = "gold_rate_history.csv"
@@ -38,6 +39,18 @@ object GoldRateStore {
         val today = LocalDate.now()
         val updated = (loadAll(context).filterNot { it.date == today } + GoldRateEntry(today, ratePerGram))
             .sortedBy { it.date }
+        file(context).writeText(updated.joinToString("\n") { "${it.date.format(DATE_FMT)},${it.ratePerGram}" })
+        return updated
+    }
+
+    /** Adds only the dates missing from local history — an existing (AKGSMA-sourced) entry for a
+     * date always wins over a backfilled one, so this never overwrites what the app already recorded. */
+    fun mergeMissing(context: Context, fetched: List<GoldRateEntry>): List<GoldRateEntry> {
+        val current = loadAll(context)
+        val existingDates = current.mapTo(HashSet()) { it.date }
+        val toAdd = fetched.filterNot { it.date in existingDates }
+        if (toAdd.isEmpty()) return current
+        val updated = (current + toAdd).sortedBy { it.date }
         file(context).writeText(updated.joinToString("\n") { "${it.date.format(DATE_FMT)},${it.ratePerGram}" })
         return updated
     }
