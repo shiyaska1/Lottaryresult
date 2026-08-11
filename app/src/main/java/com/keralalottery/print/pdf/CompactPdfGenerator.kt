@@ -40,16 +40,10 @@ object CompactPdfGenerator {
     private const val MIN_FONT = 2f         // technical floor only - real draws fit well above this
     private const val FOOTER_HEIGHT = 16f   // reserved so body content never sits under the footer note
     private const val FOOTER_TEXT = "വാട്സ്ആപ്പിൽ ബന്ധപ്പെടുക: 9961128378"
-    // Extra reserved height for the unofficial-source warning line, on top of FOOTER_HEIGHT.
-    private const val UNOFFICIAL_NOTE_HEIGHT = 13f
-    private const val UNOFFICIAL_NOTE_TEXT = "UNOFFICIAL RESULT — WAIT FOR THE FINAL OFFICIAL ANNOUNCEMENT"
     // Shown in the body when the unofficial page exists for today's draw but has no prize
-    // tiers on it yet - published early, ahead of the draw itself.
+    // tiers on it yet - published early, ahead of the draw itself. Kept - this is the body
+    // placeholder, not one of the stacked footer captions that got removed.
     private const val WAITING_TEXT = "ഫലം ഉടൻ വരും"
-    // Shown right after the printed tiers when the unofficial source has at least one prize
-    // (e.g. just the 1st) but is still unofficial, so more could be added on a re-fetch.
-    private const val BALANCE_NOTE_TEXT = "ബാക്കി സമ്മാനങ്ങൾ ഉടൻ വരും - കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക"
-    private const val BALANCE_NOTE_HEIGHT = 14f
 
     private val A4 = 595f to 842f
 
@@ -94,11 +88,7 @@ object CompactPdfGenerator {
     private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
-        val showBalanceNote = isUnofficial && result.tiers.isNotEmpty()
-        val footerHeight = FOOTER_HEIGHT +
-            (if (isUnofficial) UNOFFICIAL_NOTE_HEIGHT else 0f) +
-            (if (showBalanceNote) BALANCE_NOTE_HEIGHT else 0f)
-        val availableHeight = pageH - MARGIN * 2 - footerHeight
+        val availableHeight = pageH - MARGIN * 2 - FOOTER_HEIGHT
 
         var fs = CEILING_FONT
         var rows: List<TierRows> = emptyList()
@@ -309,8 +299,7 @@ object CompactPdfGenerator {
             // The unofficial page exists for today's draw but nothing's been announced yet -
             // say so plainly instead of leaving the body blank, centered in the space the
             // tiers would otherwise fill.
-            val footerHeight = FOOTER_HEIGHT + if (plan.isUnofficial) UNOFFICIAL_NOTE_HEIGHT else 0f
-            val bodyBottom = pageH - MARGIN - footerHeight
+            val bodyBottom = pageH - MARGIN - FOOTER_HEIGHT
             val waitingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 textSize = 26f
                 typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
@@ -369,36 +358,18 @@ object CompactPdfGenerator {
             y += TIER_GAP
         }
 
-        if (plan.isUnofficial && plan.tierRows.isNotEmpty()) {
-            val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                textSize = 10f
-                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-                color = Color.BLACK
-                textAlign = Paint.Align.CENTER
-            }
-            y += -notePaint.fontMetrics.ascent
-            drawFit(canvas, BALANCE_NOTE_TEXT, centerX, y, contentWidth, notePaint)
-        }
-
         // Small fixed footer note, anchored to the page bottom regardless of how much body
-        // content there is - plan() already reserved FOOTER_HEIGHT (+ UNOFFICIAL_NOTE_HEIGHT
-        // when applicable) so neither can collide with the body above it.
-        val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textSize = 8f
-            typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
-            color = Color.BLACK
-            textAlign = Paint.Align.CENTER
-        }
-        drawFit(canvas, FOOTER_TEXT, centerX, pageH - 16f, contentWidth, footerPaint)
-
-        if (plan.isUnofficial) {
-            val notePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                textSize = 9f
-                typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+        // content there is - plan() already reserved FOOTER_HEIGHT so it can't collide with
+        // the body above it. Unofficial pages print no footer captions at all (previously had
+        // three stacked lines here, which was confusing) - just the header and tiers.
+        if (!plan.isUnofficial) {
+            val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                textSize = 8f
+                typeface = Typeface.create(Typeface.SERIF, Typeface.ITALIC)
                 color = Color.BLACK
                 textAlign = Paint.Align.CENTER
             }
-            drawFit(canvas, UNOFFICIAL_NOTE_TEXT, centerX, pageH - 16f - UNOFFICIAL_NOTE_HEIGHT, contentWidth, notePaint)
+            drawFit(canvas, FOOTER_TEXT, centerX, pageH - 16f, contentWidth, footerPaint)
         }
     }
 }
