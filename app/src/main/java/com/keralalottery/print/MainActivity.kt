@@ -37,9 +37,11 @@ import com.keralalottery.print.network.KeralaLotterySchedule
 import com.keralalottery.print.network.LotteryListing
 import com.keralalottery.print.network.OfficialLotteryResultsClient
 import com.keralalottery.print.network.UnofficialLotteryResultsClient
+import com.keralalottery.print.network.UnofficialLotteryResultsClient2
 import com.keralalottery.print.news.NewsScreen
 import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.parse.UnofficialResultParser
+import com.keralalottery.print.parse.UnofficialResultParser2
 import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
@@ -308,40 +310,70 @@ private fun LotteryPrintApp() {
             }
         }
 
-        Button(
-            onClick = {
-                val listing = selectedListing ?: return@Button
-                val source = if (useUnofficial) ResultSource.UNOFFICIAL else ResultSource.OFFICIAL
-                // Unofficial targets today's (or yesterday's, per the chip above) actual
-                // lottery by Kerala's fixed weekly schedule, not whatever the dropdown happens
-                // to have selected - which can still be lagging a day behind if the official
-                // listing itself hasn't posted today's row yet.
-                val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
-                val unofficialDate = java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong())
-                val unofficialTarget = KeralaLotterySchedule.listingForDate(unofficialDate, officialItems) ?: listing
-                runGeneration(source) {
-                    if (useUnofficial) {
-                        try {
-                            val url = UnofficialLotteryResultsClient.guessUrl(unofficialTarget)
-                            val html = UnofficialLotteryResultsClient.fetchHtml(url)
-                            UnofficialResultParser.parseHtml(html)
-                        } catch (e: Exception) {
-                            // The mirror page itself might not be up yet (404) ahead of the
-                            // draw - still print the letterhead from what we already know,
-                            // with the same "result coming soon" placeholder as a page that
-                            // loaded but had nothing on it yet.
-                            UnofficialResultParser.waitingResult(unofficialTarget)
+        // Resolves which listing "unofficial" actually targets - today's (or yesterday's, per
+        // the chip above) actual lottery by Kerala's fixed weekly schedule, not whatever the
+        // dropdown happens to have selected, which can still be lagging a day behind if the
+        // official listing itself hasn't posted today's row yet.
+        fun unofficialTargetOrFallback(): LotteryListing? {
+            val fallback = selectedListing
+            val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
+            val unofficialDate = java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong())
+            return KeralaLotterySchedule.listingForDate(unofficialDate, officialItems) ?: fallback
+        }
+
+        if (useUnofficial) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        val target = unofficialTargetOrFallback() ?: return@Button
+                        runGeneration(ResultSource.UNOFFICIAL) {
+                            try {
+                                val url = UnofficialLotteryResultsClient.guessUrl(target)
+                                val html = UnofficialLotteryResultsClient.fetchHtml(url)
+                                UnofficialResultParser.parseHtml(html)
+                            } catch (e: Exception) {
+                                // The mirror page itself might not be up yet (404) ahead of the
+                                // draw - still print the letterhead from what we already know,
+                                // with the same "result coming soon" placeholder as a page that
+                                // loaded but had nothing on it yet.
+                                UnofficialResultParser.waitingResult(target)
+                            }
                         }
-                    } else {
+                    },
+                    enabled = genState !is GenerationState.Working && passwordReady,
+                    modifier = Modifier.weight(1f)
+                ) { Text("സ്രോതസ്സ് 1") }
+                Button(
+                    onClick = {
+                        val target = unofficialTargetOrFallback() ?: return@Button
+                        runGeneration(ResultSource.UNOFFICIAL) {
+                            try {
+                                val url = UnofficialLotteryResultsClient2.guessUrl(target)
+                                val html = UnofficialLotteryResultsClient2.fetchHtml(url)
+                                UnofficialResultParser2.parseHtml(html, target)
+                            } catch (e: Exception) {
+                                UnofficialResultParser2.waitingResult(target)
+                            }
+                        }
+                    },
+                    enabled = genState !is GenerationState.Working && passwordReady,
+                    modifier = Modifier.weight(1f)
+                ) { Text("സ്രോതസ്സ് 2") }
+            }
+        } else {
+            Button(
+                onClick = {
+                    val listing = selectedListing ?: return@Button
+                    runGeneration(ResultSource.OFFICIAL) {
                         val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
                         LotteryPdfParser.parsePdfBytes(context, bytes)
                     }
-                }
-            },
-            enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (useUnofficial) "അനൗദ്യോഗിക സ്രോതസ്സിൽ നിന്ന് എടുത്ത് തയ്യാറാക്കുക" else "ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
+                },
+                enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
+            }
         }
 
         HorizontalDivider()
@@ -426,8 +458,8 @@ private fun SourceBadge(source: ResultSource, tierCount: Int) {
         ResultSource.OFFICIAL -> "ഔദ്യോഗിക സർക്കാർ പോർട്ടൽ" to MaterialTheme.colorScheme.primary
         ResultSource.IMPORTED -> "നേരിട്ട് ചേർത്ത PDF" to MaterialTheme.colorScheme.primary
         ResultSource.UNOFFICIAL -> (
-            if (tierCount == 0) "അനൗദ്യോഗിക സ്രോതസ്സ് (keralalotteries.net) - ഇതുവരെ പ്രഖ്യാപിച്ചിട്ടില്ല, കുറച്ച് കഴിഞ്ഞ് നോക്കുക"
-            else "അനൗദ്യോഗിക സ്രോതസ്സ് (keralalotteries.net) - $tierCount സമ്മാന വിഭാഗ${if (tierCount == 1) "ം" else "ങ്ങൾ"} കണ്ടെത്തി, അപൂർണ്ണമാകാം"
+            if (tierCount == 0) "അനൗദ്യോഗിക സ്രോതസ്സ് - ഇതുവരെ പ്രഖ്യാപിച്ചിട്ടില്ല, കുറച്ച് കഴിഞ്ഞ് നോക്കുക"
+            else "അനൗദ്യോഗിക സ്രോതസ്സ് - $tierCount സമ്മാന വിഭാഗ${if (tierCount == 1) "ം" else "ങ്ങൾ"} കണ്ടെത്തി, അപൂർണ്ണമാകാം"
             ) to MaterialTheme.colorScheme.error
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
