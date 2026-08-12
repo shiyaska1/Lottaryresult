@@ -3,6 +3,9 @@ package com.keralalottery.print.parse
 import com.keralalottery.print.model.LotteryHeader
 import com.keralalottery.print.model.LotteryResult
 import com.keralalottery.print.network.LotteryListing
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * Parses a result page from the second unofficial mirror (keralalottery.com.co) into the same
@@ -13,8 +16,19 @@ import com.keralalottery.print.network.LotteryListing
  * This site's page never prints the draw code (e.g. "BT-66") anywhere in its own text - only
  * the date. So unlike [UnofficialResultParser], the header here is always built from the
  * already-known [LotteryListing] (name/drawCode/date), and this parser only extracts the tiers.
+ *
+ * The URL itself has no date parameter (see [com.keralalottery.print.network.UnofficialLotteryResultsClient2]),
+ * so ahead of today's draw being posted the page keeps serving *last week's* result with a plain
+ * HTTP 200 instead of a 404 - it just quietly looks like a valid, complete, up-to-date result.
+ * The page does print the date of whatever draw it's actually showing though (the "August 05
+ * 2026" heading), so that's checked against the expected draw date before trusting the page at
+ * all - a mismatch is treated exactly like a 404 (today's draw isn't up yet).
  */
 object UnofficialResultParser2 {
+
+    private val PAGE_DATE = Regex("""<h2 class="dt">\s*([A-Za-z]+)\s+(\d{1,2})\s+(\d{4})\s*</h2>""")
+    private val PAGE_DATE_FMT = DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH)
+    private val LISTING_DATE_FMT = DateTimeFormatter.ofPattern("dd-MM-yyyy")
 
     private val TIER_HEADER = Regex("""^(1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\s*Prize\s*:?$""", RegexOption.IGNORE_CASE)
     private val CONSOLATION_HEADER = Regex("""^Cons(?:olation)?\s*Prize$""", RegexOption.IGNORE_CASE)
@@ -38,6 +52,19 @@ object UnofficialResultParser2 {
     }
 
     fun parseHtml(html: String, listing: LotteryListing): LotteryResult {
+        val pageDate = PAGE_DATE.find(html)?.let { m ->
+            runCatching {
+                LocalDate.parse("${m.groupValues[1]} ${m.groupValues[2]} ${m.groupValues[3]}", PAGE_DATE_FMT)
+            }.getOrNull()
+        }
+        val expectedDate = runCatching { LocalDate.parse(listing.date, LISTING_DATE_FMT) }.getOrNull()
+        if (pageDate != null && expectedDate != null && pageDate != expectedDate) {
+            error(
+                "${listing.date}-ലെ ഫലം അനൗദ്യോഗിക സൈറ്റ് 2-ൽ ഇതുവരെ പ്രസിദ്ധീകരിച്ചിട്ടില്ല - " +
+                    "ലഭ്യമായത് $pageDate ലെ പഴയ ഫലം മാത്രമാണ്."
+            )
+        }
+
         val lines = toLines(html)
 
         val tiers = mutableListOf<Pending>()
