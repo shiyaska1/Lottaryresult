@@ -24,7 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.keralalottery.print.calculator.CalculatorScreen
 import com.keralalottery.print.data.AppPrefs
@@ -43,9 +43,10 @@ import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.parse.UnofficialResultParser
 import com.keralalottery.print.parse.UnofficialResultParser2
 import com.keralalottery.print.pdf.CompactPdfGenerator
-import com.keralalottery.print.pdf.PdfEncryptor
 import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
+import com.keralalottery.print.search.findTicketMatches
+import com.keralalottery.print.search.TicketMatch
 import com.keralalottery.print.ui.ZoomableImageViewer
 import com.keralalottery.print.quicklinks.QuickLinksRow
 import com.keralalottery.print.update.AppUpdater
@@ -67,6 +68,13 @@ private sealed interface GenerationState {
     data object Working : GenerationState
     data class Error(val message: String) : GenerationState
     data class Ready(val result: LotteryResult, val file: File, val preview: Bitmap, val source: ResultSource) : GenerationState
+}
+
+private sealed interface SearchState {
+    data object Idle : SearchState
+    data object Working : SearchState
+    data class Error(val message: String) : SearchState
+    data class Done(val result: LotteryResult, val source: ResultSource, val matches: List<TicketMatch>) : SearchState
 }
 
 class MainActivity : ComponentActivity() {
@@ -157,9 +165,8 @@ private fun LotteryPrintApp() {
     var manualUri by remember { mutableStateOf<Uri?>(null) }
     var manualName by remember { mutableStateOf<String?>(null) }
 
-    var passwordProtect by remember { mutableStateOf(false) }
-    var password by remember { mutableStateOf("") }
-    val passwordReady = !passwordProtect || password.isNotBlank()
+    var searchQuery by remember { mutableStateOf("") }
+    var searchState by remember { mutableStateOf<SearchState>(SearchState.Idle) }
 
     LaunchedEffect(reloadKey) {
         listingsState = ListingsState.Loading
@@ -169,6 +176,60 @@ private fun LotteryPrintApp() {
             ListingsState.Loaded(items)
         } catch (e: Exception) {
             ListingsState.Error(e.message ?: "ഫല പട്ടിക ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.")
+        }
+    }
+
+    // Resolves which listing "unofficial" (and search) actually targets - today's (or
+    // yesterday's, per the chip below) actual lottery by Kerala's fixed weekly schedule, not
+    // whatever the dropdown happens to have selected, which can still be lagging a day behind if
+    // the official listing itself hasn't posted today's row yet.
+    fun unofficialTargetOrFallback(): LotteryListing? {
+        val fallback = selectedListing
+        val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
+        val unofficialDate = java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong())
+        return KeralaLotterySchedule.listingForDate(unofficialDate, officialItems) ?: fallback
+    }
+
+    fun runSearch() {
+        val query = searchQuery.trim()
+        if (query.length < 3) {
+            searchState = SearchState.Error("ചുരുങ്ങിയത് 3 അക്കമെങ്കിലും നൽകുക")
+            return
+        }
+        searchState = SearchState.Working
+        scope.launch {
+            searchState = withContext(Dispatchers.IO) {
+                var result: LotteryResult? = null
+                var source = ResultSource.OFFICIAL
+                val official = selectedListing
+                if (official != null) {
+                    result = runCatching {
+                        val bytes = OfficialLotteryResultsClient.fetchResultPdf(official.itemId)
+                        LotteryPdfParser.parsePdfBytes(context, bytes)
+                    }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
+                }
+                if (result == null) {
+                    source = ResultSource.UNOFFICIAL
+                    val target = unofficialTargetOrFallback()
+                    if (target != null) {
+                        result = runCatching {
+                            val html = UnofficialLotteryResultsClient.fetchHtml(UnofficialLotteryResultsClient.guessUrl(target))
+                            UnofficialResultParser.parseHtml(html)
+                        }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
+                        if (result == null) {
+                            result = runCatching {
+                                val html2 = UnofficialLotteryResultsClient2.fetchHtml(UnofficialLotteryResultsClient2.guessUrl(target))
+                                UnofficialResultParser2.parseHtml(html2, target)
+                            }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
+                        }
+                    }
+                }
+                if (result == null) {
+                    SearchState.Error("ഫലം ഇതുവരെ ലഭ്യമല്ല - കുറച്ച് കഴിഞ്ഞ് ശ്രമിക്കുക.")
+                } else {
+                    SearchState.Done(result, source, result.findTicketMatches(query))
+                }
+            }
         }
     }
 
@@ -188,13 +249,7 @@ private fun LotteryPrintApp() {
                     val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                     val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
                     CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
-                    // Render the preview from the plain PDF first - Android's PdfRenderer can't
-                    // open a password-protected one - then encrypt the file in place afterward,
-                    // so both Download and Share end up with the protected copy.
                     val bitmap = renderFirstPage(outFile)
-                    if (passwordProtect && password.isNotBlank()) {
-                        PdfEncryptor.protect(context, outFile, password)
-                    }
                     Triple(parsed, outFile, bitmap)
                 }
                 genState = GenerationState.Ready(result, file, preview, source)
@@ -223,22 +278,60 @@ private fun LotteryPrintApp() {
             singleLine = true
         )
 
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = passwordProtect, onCheckedChange = { passwordProtect = it })
-                Text("PDF പാസ്‌വേഡ് സംരക്ഷിക്കുക")
+        HorizontalDivider()
+        Text("ടിക്കറ്റ് നമ്പർ പരിശോധിക്കുക", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "നിങ്ങളുടെ ടിക്കറ്റ് നമ്പറിന്റെ ഏതെങ്കിലും ഭാഗം നൽകുക - ഏറ്റവും പുതിയ ഫലത്തിൽ (ഔദ്യോഗികം അല്ലെങ്കിൽ അനൗദ്യോഗികം) തിരയും.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("ടിക്കറ്റ് നമ്പർ") },
+                placeholder = { Text("ഉദാ: 1234") },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            Button(onClick = { runSearch() }, enabled = searchState !is SearchState.Working) {
+                Text("തിരയുക")
             }
-            if (passwordProtect) {
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("PDF പാസ്‌വേഡ്") },
-                    isError = password.isBlank(),
-                    supportingText = { if (password.isBlank()) Text("PDF സംരക്ഷിക്കാൻ ആവശ്യമാണ്") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+        }
+        when (val ss = searchState) {
+            SearchState.Idle -> Unit
+            SearchState.Working -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("തിരയുന്നു…")
+            }
+            is SearchState.Error -> Text(ss.message, color = MaterialTheme.colorScheme.error)
+            is SearchState.Done -> {
+                val h = ss.result.header
+                Text(
+                    "${h.lotteryName} (${h.drawNumber}) — ${h.drawDate} • ${if (ss.source == ResultSource.OFFICIAL) "ഔദ്യോഗികം" else "അനൗദ്യോഗികം"}",
+                    style = MaterialTheme.typography.labelMedium
                 )
+                if (ss.matches.isEmpty()) {
+                    Text("ഈ നമ്പറിന് സമ്മാനം ലഭിച്ചിട്ടില്ല.", color = MaterialTheme.colorScheme.error)
+                } else {
+                    Text(
+                        "സമ്മാനം ലഭിച്ചു!",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    ss.matches.forEach { m ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text(
+                                "${m.tierLabel} — ₹${CompactPdfGenerator.formatAmount(m.amount)}",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text("ടിക്കറ്റ്: ${m.number}" + if (m.place.isNotBlank()) " (${m.place})" else "")
+                        }
+                        HorizontalDivider()
+                    }
+                }
             }
         }
 
@@ -310,17 +403,6 @@ private fun LotteryPrintApp() {
             }
         }
 
-        // Resolves which listing "unofficial" actually targets - today's (or yesterday's, per
-        // the chip above) actual lottery by Kerala's fixed weekly schedule, not whatever the
-        // dropdown happens to have selected, which can still be lagging a day behind if the
-        // official listing itself hasn't posted today's row yet.
-        fun unofficialTargetOrFallback(): LotteryListing? {
-            val fallback = selectedListing
-            val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
-            val unofficialDate = java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong())
-            return KeralaLotterySchedule.listingForDate(unofficialDate, officialItems) ?: fallback
-        }
-
         if (useUnofficial) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
@@ -340,7 +422,7 @@ private fun LotteryPrintApp() {
                             }
                         }
                     },
-                    enabled = genState !is GenerationState.Working && passwordReady,
+                    enabled = genState !is GenerationState.Working,
                     modifier = Modifier.weight(1f)
                 ) { Text("സ്രോതസ്സ് 1") }
                 Button(
@@ -356,7 +438,7 @@ private fun LotteryPrintApp() {
                             }
                         }
                     },
-                    enabled = genState !is GenerationState.Working && passwordReady,
+                    enabled = genState !is GenerationState.Working,
                     modifier = Modifier.weight(1f)
                 ) { Text("സ്രോതസ്സ് 2") }
             }
@@ -369,7 +451,7 @@ private fun LotteryPrintApp() {
                         LotteryPdfParser.parsePdfBytes(context, bytes)
                     }
                 },
-                enabled = selectedListing != null && genState !is GenerationState.Working && passwordReady,
+                enabled = selectedListing != null && genState !is GenerationState.Working,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
@@ -387,7 +469,7 @@ private fun LotteryPrintApp() {
                 val uri = manualUri ?: return@Button
                 runGeneration(ResultSource.IMPORTED) { LotteryPdfParser.parsePdf(context, uri) }
             },
-            enabled = manualUri != null && genState !is GenerationState.Working && passwordReady,
+            enabled = manualUri != null && genState !is GenerationState.Working,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("ചേർത്ത PDF-ൽ നിന്ന് തയ്യാറാക്കുക")

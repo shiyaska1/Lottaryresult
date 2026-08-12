@@ -162,8 +162,9 @@ object CompactPdfGenerator {
 
     // ---- formatting helpers ------------------------------------------------
 
-    /** "10000000/-" -> "1,00,00,000/-" (Indian digit grouping). Non-numeric amounts pass through untouched. */
-    private fun formatAmount(raw: String): String {
+    /** "10000000/-" -> "1,00,00,000/-" (Indian digit grouping). Non-numeric amounts pass through untouched.
+     *  Also used by the ticket search screen so amounts display with the same grouping. */
+    internal fun formatAmount(raw: String): String {
         val m = Regex("""^(\d+)(/-)?$""").find(raw.trim()) ?: return raw
         val digits = m.groupValues[1]
         val suffix = m.groupValues[2]
