@@ -21,8 +21,13 @@ object UnofficialResultParser {
     private val VENUE_HINT = Regex("""\bat\s+([A-Za-z0-9 ,.'-]+?Thiruvananthapuram)""", RegexOption.IGNORE_CASE)
     private const val DEFAULT_VENUE = "AT GORKY BHAVAN, NEAR BAKERY JUNCTION, THIRUVANANTHAPURAM"
 
-    private val TIER_HEADER = Regex("""^(1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\s*Prize\s*:?$""", RegexOption.IGNORE_CASE)
-    private val CONSOLATION_HEADER = Regex("""^Consolation Prize$""", RegexOption.IGNORE_CASE)
+    // The site used to print the tier label alone on its own line, with the amount as a
+    // separate following line - it now glues the amount onto the same line/span as the label
+    // ("1st Prize Rs.1,00,00,000/- [1 Crore]"), so this only anchors the label as a prefix and
+    // captures whatever follows it as the first piece of that tier's content, instead of
+    // requiring the whole line to be nothing but the bare label.
+    private val TIER_HEADER = Regex("""^(1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\s*Prize\b\s*:?\s*(.*)$""", RegexOption.IGNORE_CASE)
+    private val CONSOLATION_HEADER = Regex("""^Consolation Prize\b\s*:?\s*(.*)$""", RegexOption.IGNORE_CASE)
     private val NOISE_LINE = Regex(
         """^(₹|-{2,}|\(Common to all series\)|\(Remaining all series\)|\(Last four digits.*\)|Agent Name\s*:.*|Agency No\.?\s*:.*|For the tickets ending.*)$""",
         RegexOption.IGNORE_CASE
@@ -65,10 +70,13 @@ object UnofficialResultParser {
             if (tierMatch != null) {
                 val ord = tierMatch.groupValues[1]
                 current = Pending(ord, "$ord Prize").also { tiers += it }
+                tierMatch.groupValues[2].trim().takeIf { it.isNotEmpty() }?.let { current!!.content.append(it).append(' ') }
                 continue
             }
-            if (CONSOLATION_HEADER.matches(line)) {
+            val consMatch = CONSOLATION_HEADER.find(line)
+            if (consMatch != null) {
                 current = Pending("Cons", "Consolation Prize").also { tiers += it }
+                consMatch.groupValues[1].trim().takeIf { it.isNotEmpty() }?.let { current!!.content.append(it).append(' ') }
                 continue
             }
             if (current == null) continue

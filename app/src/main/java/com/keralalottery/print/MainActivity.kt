@@ -218,7 +218,7 @@ private fun LotteryPrintApp() {
         }
         run {
             val r = runCatching {
-                val html = UnofficialLotteryResultsClient.fetchHtml(UnofficialLotteryResultsClient.guessUrl(target))
+                val html = UnofficialLotteryResultsClient.fetchHtml(UnofficialLotteryResultsClient.resolveUrl(target))
                 UnofficialResultParser.parseHtml(html)
             }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
             if (r != null && r.findTicketMatches(query).isNotEmpty()) return r to ResultSource.UNOFFICIAL
@@ -430,7 +430,7 @@ private fun LotteryPrintApp() {
                         val target = unofficialTargetOrFallback() ?: return@Button
                         runGeneration(ResultSource.UNOFFICIAL) {
                             try {
-                                val url = UnofficialLotteryResultsClient.guessUrl(target)
+                                val url = UnofficialLotteryResultsClient.resolveUrl(target)
                                 val html = UnofficialLotteryResultsClient.fetchHtml(url)
                                 UnofficialResultParser.parseHtml(html)
                             } catch (e: Exception) {
