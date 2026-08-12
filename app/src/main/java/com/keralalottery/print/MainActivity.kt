@@ -194,11 +194,13 @@ private fun LotteryPrintApp() {
 
     // Ticket search: checks every lottery, not just whatever the dropdown has selected - most
     // recent draw first (today's own lottery, then yesterday's, walking back through the rest of
-    // the week's 7 lotteries), and for each one tries Source 2 first (always first preference),
-    // then the real official PDF if that exact draw has actually been posted. [depth] > 1 means
-    // "check an older date too" - each step further shifts every lottery's target one whole week
-    // further into the past, using Source 1 (the only source that can address a specific past
-    // date) since Source 2's page has no date parameter and always shows today's draw.
+    // the week's 7 lotteries), and for each one tries every source in order: Source 2 first
+    // (always first preference), then the real official PDF if that exact draw has actually been
+    // posted, then Source 1 - which turns out to often be the most reliably up to date of the
+    // three (Source 2's page has no date parameter and can keep serving last week's result for
+    // days after a new draw), so it's checked every time, not just when going further back.
+    // [depth] > 1 means "check an older date too" - each step shifts every lottery's target one
+    // whole week further into the past.
     suspend fun searchOneDraw(target: LotteryListing, officialItems: List<LotteryListing>, depth: Int, query: String): Pair<LotteryResult, ResultSource>? {
         if (depth == 1) {
             val r = runCatching {
@@ -214,7 +216,7 @@ private fun LotteryPrintApp() {
             }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
             if (r != null && r.findTicketMatches(query).isNotEmpty()) return r to ResultSource.OFFICIAL
         }
-        if (depth > 1) {
+        run {
             val r = runCatching {
                 val html = UnofficialLotteryResultsClient.fetchHtml(UnofficialLotteryResultsClient.guessUrl(target))
                 UnofficialResultParser.parseHtml(html)
