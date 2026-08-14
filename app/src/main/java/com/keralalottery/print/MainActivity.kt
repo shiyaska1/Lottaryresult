@@ -1,7 +1,9 @@
 package com.keralalottery.print
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
+import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
@@ -14,6 +16,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +26,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.keralalottery.print.calculator.CalculatorScreen
 import com.keralalottery.print.data.AppPrefs
 import com.keralalottery.print.data.License
@@ -43,7 +48,6 @@ import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
 import com.keralalottery.print.search.findTicketMatches
 import com.keralalottery.print.ui.ZoomableImageViewer
-import com.keralalottery.print.quicklinks.QuickLinksRow
 import com.keralalottery.print.update.AppUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -141,9 +145,7 @@ private fun RootTabs() {
             }
         }
         HorizontalDivider()
-        // Persistent across every tab - quick access to whatever the user reaches for most,
-        // without leaving this app to hunt for it on the home screen.
-        QuickLinksRow()
+        CompanyBanner()
         HorizontalDivider()
         Box(modifier = Modifier.weight(1f)) {
             when (tab) {
@@ -155,6 +157,54 @@ private fun RootTabs() {
                 RootTab.DIARY -> DiaryScreen()
                 RootTab.NEWS -> NewsScreen()
             }
+        }
+    }
+}
+
+private const val COMPANY_PHONE = "9961128378"
+
+/** Persistent across every tab, where the quick-links shortcut row used to be - the shop's own
+ * identity/contact instead, tap-to-call so a customer can ring the shop straight from here.
+ * Two tight lines on a tinted background rather than a full card, so it reads as a proper
+ * letterhead strip without eating much vertical space. */
+@Composable
+private fun CompanyBanner() {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.primaryContainer)
+            .clickable {
+                runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$COMPANY_PHONE"))) }
+            }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            "MOBI CARE COMPUTERS",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "PERIGALA, ERNAKULAM  •  ",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Icon(
+                Icons.Filled.Call,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Text(
+                " $COMPANY_PHONE",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }
