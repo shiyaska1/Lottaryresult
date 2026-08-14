@@ -13,8 +13,14 @@ import com.keralalottery.print.network.LotteryListing
  */
 object UnofficialResultParser {
 
+    // The date used to sit in one contiguous span ("07/08/2026"); the site now splits it across
+    // two spans ("07" and "/08/2026...") which, after tag-stripping joins everything with a
+    // single space, left a stray space in the middle - a plain [0-9/]+ run stopped at "07" and
+    // dumped the rest ("/08/2026 Suvarna Keralam") into the lottery-name group instead. This
+    // matches the date as up to three slash-separated number groups with optional whitespace
+    // around each slash, so it still works whether the site glues them or splits them.
     private val HEADER_LINE = Regex(
-        """Kerala Lottery Date of Draw:\s*([0-9/]+)\s+(.+?)\s+([A-Za-z]{2,3})\s+(\d+)\s+Winners Numbers""",
+        """Kerala Lottery Date of Draw:\s*(\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{4})\s+(.+?)\s+([A-Za-z]{2,3})\s+(\d+)\s+Winners Numbers""",
         RegexOption.IGNORE_CASE
     )
     private val TIME_LINE = Regex("""Kerala Lottery Result Live\s*@\s*([\d:apmAPM]+)""")
@@ -32,7 +38,16 @@ object UnofficialResultParser {
         """^(₹|-{2,}|\(Common to all series\)|\(Remaining all series\)|\(Last four digits.*\)|Agent Name\s*:.*|Agency No\.?\s*:.*|For the tickets ending.*)$""",
         RegexOption.IGNORE_CASE
     )
-    private const val STOP_MARKER = "repeated draw numbers"
+    // Everything after the real prize tiers used to be caught by just "repeated draw numbers",
+    // but the site now inserts a few more lines first - a "<CODE> <NUM> Result (Today) Date:
+    // ..." recap line, the 90-day disclaimer, then two "previous results"/"prize structure" nav
+    // links - all of which were bleeding into the last real tier's content before the old,
+    // later marker was ever reached. Stopping at whichever of these appears first catches it
+    // right after the real numbers end, with no junk in between.
+    private val STOP_MARKER = Regex(
+        """result\s*\(today\)\s*date\s*:|the prize winners are advised|repeated draw numbers""",
+        RegexOption.IGNORE_CASE
+    )
 
     private class Pending(val key: String, val label: String) {
         val content = StringBuilder()
@@ -50,7 +65,7 @@ object UnofficialResultParser {
         var venue = DEFAULT_VENUE
 
         HEADER_LINE.find(fullText)?.let { m ->
-            drawDate = m.groupValues[1].trim()
+            drawDate = m.groupValues[1].replace(Regex("""\s+"""), "").trim()
             lotteryName = m.groupValues[2].trim().uppercase() + " LOTTERY"
             drawNumber = "${m.groupValues[3].uppercase()}-${m.groupValues[4]}"
         }
@@ -63,7 +78,7 @@ object UnofficialResultParser {
 
         for (line in lines) {
             if (stopped) continue
-            if (line.lowercase().contains(STOP_MARKER)) { stopped = true; continue }
+            if (current != null && STOP_MARKER.containsMatchIn(line)) { stopped = true; continue }
             if (NOISE_LINE.matches(line)) continue
 
             val tierMatch = TIER_HEADER.find(line)
