@@ -1,16 +1,12 @@
 package com.keralalottery.print
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
-import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,7 +42,6 @@ import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
 import com.keralalottery.print.search.findTicketMatches
-import com.keralalottery.print.search.TicketMatch
 import com.keralalottery.print.ui.ZoomableImageViewer
 import com.keralalottery.print.quicklinks.QuickLinksRow
 import com.keralalottery.print.update.AppUpdater
@@ -61,7 +56,7 @@ private sealed interface ListingsState {
     data class Error(val message: String) : ListingsState
 }
 
-private enum class ResultSource { OFFICIAL, UNOFFICIAL, IMPORTED }
+private enum class ResultSource { OFFICIAL, UNOFFICIAL }
 
 private sealed interface GenerationState {
     data object Idle : GenerationState
@@ -70,13 +65,28 @@ private sealed interface GenerationState {
     data class Ready(val result: LotteryResult, val file: File, val preview: Bitmap, val source: ResultSource) : GenerationState
 }
 
+/** One matched ticket, flattened with which draw/source it came from - a multi-number search
+ * can turn up matches from several different draws, so each row carries its own header info
+ * rather than the whole result sharing one. */
+private data class FoundMatch(
+    val query: String,
+    val lotteryName: String,
+    val drawNumber: String,
+    val drawDate: String,
+    val source: ResultSource,
+    val tierLabel: String,
+    val amount: String,
+    val number: String,
+    val place: String
+)
+
 private sealed interface SearchState {
     data object Idle : SearchState
     data object Working : SearchState
     data class Error(val message: String) : SearchState
-    data class Done(val result: LotteryResult, val source: ResultSource, val matches: List<TicketMatch>) : SearchState
-    /** Checked every lottery for [depthTried] week(s) back with no match - offers to go further. */
-    data class NotFound(val depthTried: Int) : SearchState
+    /** [notFoundQueries] is whatever's left unmatched after this pass - shown alongside any
+     * matches found, with an option to look [depthTried] + 1 week(s) further back for those. */
+    data class Done(val matches: List<FoundMatch>, val notFoundQueries: List<String>, val depthTried: Int) : SearchState
 }
 
 class MainActivity : ComponentActivity() {
@@ -161,14 +171,14 @@ private fun LotteryPrintApp() {
     var listingsState by remember { mutableStateOf<ListingsState>(ListingsState.Loading) }
     var selectedListing by remember { mutableStateOf<LotteryListing?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
-    var useUnofficial by remember { mutableStateOf(false) }
+    var useUnofficial by remember { mutableStateOf(true) }
     var unofficialDayOffset by remember { mutableStateOf(0) }  // 0 = today, -1 = yesterday
-
-    var manualUri by remember { mutableStateOf<Uri?>(null) }
-    var manualName by remember { mutableStateOf<String?>(null) }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchState by remember { mutableStateOf<SearchState>(SearchState.Idle) }
+    // Quick search: only today's and yesterday's lottery, instead of the whole week - the common
+    // case (checking a ticket you just bought), so it defaults on.
+    var quickSearch by remember { mutableStateOf(true) }
 
     LaunchedEffect(reloadKey) {
         listingsState = ListingsState.Loading
@@ -194,67 +204,77 @@ private fun LotteryPrintApp() {
 
     // Ticket search: checks every lottery, not just whatever the dropdown has selected - most
     // recent draw first (today's own lottery, then yesterday's, walking back through the rest of
-    // the week's 7 lotteries), and for each one tries every source in order: Source 2 first
-    // (always first preference), then the real official PDF if that exact draw has actually been
-    // posted, then Source 1 - which turns out to often be the most reliably up to date of the
-    // three (Source 2's page has no date parameter and can keep serving last week's result for
-    // days after a new draw), so it's checked every time, not just when going further back.
-    // [depth] > 1 means "check an older date too" - each step shifts every lottery's target one
-    // whole week further into the past.
-    suspend fun searchOneDraw(target: LotteryListing, officialItems: List<LotteryListing>, depth: Int, query: String): Pair<LotteryResult, ResultSource>? {
-        if (depth == 1) {
-            val r = runCatching {
+    // the week's 7 lotteries, unless "quick search" narrows it to just those first two), and for
+    // each one tries every source in order: Source 2 first (always first preference), then
+    // Source 1 - which turns out to often be the most reliably up to date of the three (Source
+    // 2's page has no date parameter and can keep serving last week's result for days after a
+    // new draw) - then the real official PDF if that exact draw has actually been posted.
+    // [queries] can be several numbers at once (someone checking every ticket they bought); a
+    // draw is only re-checked against whichever of them haven't already matched somewhere else,
+    // and sources beyond the first are only tried while some queries still haven't matched this
+    // particular draw. [depth] > 1 means "check an older date too" - each step shifts every
+    // lottery's target one whole week further into the past.
+    suspend fun searchOneDraw(target: LotteryListing, officialItems: List<LotteryListing>, depth: Int, queries: List<String>): List<FoundMatch> {
+        val found = mutableListOf<FoundMatch>()
+        var remaining = queries
+
+        fun record(result: LotteryResult, source: ResultSource) {
+            val matches = result.findTicketMatches(remaining)
+            if (matches.isEmpty()) return
+            val h = result.header
+            matches.forEach { m -> found += FoundMatch(m.matchedQuery, h.lotteryName, h.drawNumber, h.drawDate, source, m.tierLabel, m.amount, m.number, m.place) }
+            remaining = remaining - matches.map { it.matchedQuery }.toSet()
+        }
+
+        if (depth == 1 && remaining.isNotEmpty()) {
+            runCatching {
                 val html = UnofficialLotteryResultsClient2.fetchHtml(UnofficialLotteryResultsClient2.guessUrl(target))
                 UnofficialResultParser2.parseHtml(html, target)
-            }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
-            if (r != null && r.findTicketMatches(query).isNotEmpty()) return r to ResultSource.UNOFFICIAL
+            }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }?.let { record(it, ResultSource.UNOFFICIAL) }
         }
-        officialItems.find { it.drawCode == target.drawCode }?.let { real ->
-            val r = runCatching {
-                val bytes = OfficialLotteryResultsClient.fetchResultPdf(real.itemId)
-                LotteryPdfParser.parsePdfBytes(context, bytes)
-            }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
-            if (r != null && r.findTicketMatches(query).isNotEmpty()) return r to ResultSource.OFFICIAL
-        }
-        run {
-            val r = runCatching {
+        if (remaining.isNotEmpty()) {
+            runCatching {
                 val html = UnofficialLotteryResultsClient.fetchHtml(UnofficialLotteryResultsClient.resolveUrl(target))
                 UnofficialResultParser.parseHtml(html)
-            }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }
-            if (r != null && r.findTicketMatches(query).isNotEmpty()) return r to ResultSource.UNOFFICIAL
+            }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }?.let { record(it, ResultSource.UNOFFICIAL) }
         }
-        return null
+        if (remaining.isNotEmpty()) {
+            officialItems.find { it.drawCode == target.drawCode }?.let { real ->
+                runCatching {
+                    val bytes = OfficialLotteryResultsClient.fetchResultPdf(real.itemId)
+                    LotteryPdfParser.parsePdfBytes(context, bytes)
+                }.getOrNull()?.takeIf { it.tiers.isNotEmpty() }?.let { record(it, ResultSource.OFFICIAL) }
+            }
+        }
+        return found
     }
 
-    fun runSearch(depth: Int) {
-        val query = searchQuery.trim()
-        if (query.length < 3) {
-            searchState = SearchState.Error("ചുരുങ്ങിയത് 3 അക്കമെങ്കിലും നൽകുക")
+    fun runSearch(depth: Int, queriesOverride: List<String>? = null, previousMatches: List<FoundMatch> = emptyList()) {
+        val queries = queriesOverride ?: searchQuery.split(",").map { it.trim() }.filter { it.length >= 3 }.distinct()
+        if (queries.isEmpty()) {
+            searchState = SearchState.Error("ചുരുങ്ങിയത് 3 അക്കമെങ്കിലും ഉള്ള ഒരു നമ്പറെങ്കിലും നൽകുക")
             return
         }
         searchState = SearchState.Working
         val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
+        val offsets = if (quickSearch) 0..1 else 0..6
         scope.launch {
             searchState = withContext(Dispatchers.IO) {
                 val today = java.time.LocalDate.now()
-                for (offset in 0..6) {
+                var remaining = queries
+                val newlyFound = mutableListOf<FoundMatch>()
+                for (offset in offsets) {
+                    if (remaining.isEmpty()) break
                     val anchor = today.minusDays(offset.toLong())
                     val target = KeralaLotterySchedule.listingForDate(anchor.minusWeeks((depth - 1).toLong()), officialItems) ?: continue
-                    val found = searchOneDraw(target, officialItems, depth, query)
-                    if (found != null) {
-                        val (result, source) = found
-                        return@withContext SearchState.Done(result, source, result.findTicketMatches(query))
+                    val found = searchOneDraw(target, officialItems, depth, remaining)
+                    if (found.isNotEmpty()) {
+                        newlyFound += found
+                        remaining = remaining - found.map { it.query }.toSet()
                     }
                 }
-                SearchState.NotFound(depth)
+                SearchState.Done(previousMatches + newlyFound, remaining, depth)
             }
-        }
-    }
-
-    val pickPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            manualUri = uri
-            manualName = queryDisplayName(context, uri)
         }
     }
 
@@ -299,22 +319,28 @@ private fun LotteryPrintApp() {
         HorizontalDivider()
         Text("ടിക്കറ്റ് നമ്പർ പരിശോധിക്കുക", style = MaterialTheme.typography.titleMedium)
         Text(
-            "നിങ്ങളുടെ ടിക്കറ്റ് നമ്പറിന്റെ ഏതെങ്കിലും ഭാഗം നൽകുക - ഈ ആഴ്ചയിലെ എല്ലാ ലോട്ടറികളിലും (ഔദ്യോഗികം, അനൗദ്യോഗികം) തിരയും.",
+            "ഒന്നിലധികം ടിക്കറ്റ് നമ്പറുകൾ കോമയിട്ട് വേർതിരിച്ച് നൽകാം (ഉദാ: 1234, 5678). ഏതെങ്കിലും ഭാഗം മതി.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.outline
         )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("ടിക്കറ്റ് നമ്പർ") },
-                placeholder = { Text("ഉദാ: 1234") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-            Button(onClick = { runSearch(depth = 1) }, enabled = searchState !is SearchState.Working) {
-                Text("തിരയുക")
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = quickSearch, onCheckedChange = { quickSearch = it })
+            Text("ക്വിക്ക് സെർച്ച് (ഇന്നും ഇന്നലെയും മാത്രം)")
+        }
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("ടിക്കറ്റ് നമ്പർ(കൾ)") },
+            placeholder = { Text("ഉദാ: 1234, 5678, 9012") },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = { runSearch(depth = 1) },
+            enabled = searchState !is SearchState.Working,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("തിരയുക")
         }
         when (val ss = searchState) {
             SearchState.Idle -> Unit
@@ -324,33 +350,38 @@ private fun LotteryPrintApp() {
                 Text("തിരയുന്നു…")
             }
             is SearchState.Error -> Text(ss.message, color = MaterialTheme.colorScheme.error)
-            is SearchState.NotFound -> Column {
-                Text("ഈ ആഴ്ചയിലെ ഒരു ലോട്ടറിയിലും ഈ നമ്പർ കണ്ടെത്തിയില്ല.", color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { runSearch(depth = ss.depthTried + 1) }) {
-                    Text("മുൻ തീയതി പരിശോധിക്കുക")
-                }
-            }
             is SearchState.Done -> {
-                val h = ss.result.header
-                Text(
-                    "${h.lotteryName} (${h.drawNumber}) — ${h.drawDate} • ${if (ss.source == ResultSource.OFFICIAL) "ഔദ്യോഗികം" else "അനൗദ്യോഗികം"}",
-                    style = MaterialTheme.typography.labelMedium
-                )
-                Text(
-                    "സമ്മാനം ലഭിച്ചു!",
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.titleSmall
-                )
-                ss.matches.forEach { m ->
-                    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Text(
-                            "${m.tierLabel} — ₹${CompactPdfGenerator.formatAmount(m.amount)}",
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text("ടിക്കറ്റ്: ${m.number}" + if (m.place.isNotBlank()) " (${m.place})" else "")
+                if (ss.matches.isNotEmpty()) {
+                    Text(
+                        "സമ്മാനം ലഭിച്ചു!",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    ss.matches.forEach { m ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text(
+                                "നമ്പർ ${m.query}: ${m.tierLabel} — ₹${CompactPdfGenerator.formatAmount(m.amount)}",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text("ടിക്കറ്റ്: ${m.number}" + if (m.place.isNotBlank()) " (${m.place})" else "")
+                            Text(
+                                "${m.lotteryName} (${m.drawNumber}) — ${m.drawDate} • ${if (m.source == ResultSource.OFFICIAL) "ഔദ്യോഗികം" else "അനൗദ്യോഗികം"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        HorizontalDivider()
                     }
-                    HorizontalDivider()
+                }
+                if (ss.notFoundQueries.isNotEmpty()) {
+                    Text(
+                        "ഈ നമ്പറുകൾക്ക് സമ്മാനം കണ്ടെത്താനായില്ല: ${ss.notFoundQueries.joinToString(", ")}",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    TextButton(onClick = { runSearch(depth = ss.depthTried + 1, queriesOverride = ss.notFoundQueries, previousMatches = ss.matches) }) {
+                        Text("മുൻ തീയതി പരിശോധിക്കുക")
+                    }
                 }
             }
         }
@@ -478,23 +509,6 @@ private fun LotteryPrintApp() {
             }
         }
 
-        HorizontalDivider()
-        Text("അല്ലെങ്കിൽ ഒരു PDF ഫയൽ നേരിട്ട് ചേർക്കുക", style = MaterialTheme.typography.titleMedium)
-        Button(onClick = { pickPdf.launch(arrayOf("application/pdf")) }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (manualName == null) "ഔദ്യോഗിക ഫല PDF തിരഞ്ഞെടുക്കുക" else "PDF മാറ്റുക")
-        }
-        manualName?.let { Text("തിരഞ്ഞെടുത്തത്: $it", style = MaterialTheme.typography.bodySmall) }
-        Button(
-            onClick = {
-                val uri = manualUri ?: return@Button
-                runGeneration(ResultSource.IMPORTED) { LotteryPdfParser.parsePdf(context, uri) }
-            },
-            enabled = manualUri != null && genState !is GenerationState.Working,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("ചേർത്ത PDF-ൽ നിന്ന് തയ്യാറാക്കുക")
-        }
-
         when (val s = genState) {
             is GenerationState.Working -> Box(
                 Modifier.fillMaxWidth().padding(24.dp),
@@ -558,7 +572,6 @@ private fun LotteryPrintApp() {
 private fun SourceBadge(source: ResultSource, tierCount: Int) {
     val (text, color) = when (source) {
         ResultSource.OFFICIAL -> "ഔദ്യോഗിക സർക്കാർ പോർട്ടൽ" to MaterialTheme.colorScheme.primary
-        ResultSource.IMPORTED -> "നേരിട്ട് ചേർത്ത PDF" to MaterialTheme.colorScheme.primary
         ResultSource.UNOFFICIAL -> (
             if (tierCount == 0) "അനൗദ്യോഗിക സ്രോതസ്സ് - ഇതുവരെ പ്രഖ്യാപിച്ചിട്ടില്ല, കുറച്ച് കഴിഞ്ഞ് നോക്കുക"
             else "അനൗദ്യോഗിക സ്രോതസ്സ് - $tierCount സമ്മാന വിഭാഗ${if (tierCount == 1) "ം" else "ങ്ങൾ"} കണ്ടെത്തി, അപൂർണ്ണമാകാം"
@@ -572,17 +585,6 @@ private fun SourceBadge(source: ResultSource, tierCount: Int) {
         )
         Spacer(Modifier.width(6.dp))
         Text("സ്രോതസ്സ്: $text", style = MaterialTheme.typography.labelMedium, color = color)
-    }
-}
-
-private fun queryDisplayName(context: Context, uri: Uri): String? {
-    return try {
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else uri.lastPathSegment
-        } ?: uri.lastPathSegment
-    } catch (e: Exception) {
-        uri.lastPathSegment
     }
 }
 
