@@ -1,6 +1,8 @@
 package com.keralalottery.print
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -9,6 +11,8 @@ import android.os.ParcelFileDescriptor
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.keralalottery.print.calculator.CalculatorScreen
 import com.keralalottery.print.data.AppPrefs
 import com.keralalottery.print.data.License
@@ -44,8 +50,11 @@ import com.keralalottery.print.parse.LotteryPdfParser
 import com.keralalottery.print.parse.UnofficialResultParser
 import com.keralalottery.print.parse.UnofficialResultParser2
 import com.keralalottery.print.pdf.CompactPdfGenerator
+import com.keralalottery.print.pdf.CompactPdfGeneratorV2
 import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
+import com.keralalottery.print.scan.QrScannerDialog
+import com.keralalottery.print.scan.extractLastFourDigits
 import com.keralalottery.print.search.findTicketMatches
 import com.keralalottery.print.ui.ZoomableImageViewer
 import com.keralalottery.print.update.AppUpdater
@@ -229,6 +238,14 @@ private fun LotteryPrintApp() {
     // Quick search: only today's and yesterday's lottery, instead of the whole week - the common
     // case (checking a ticket you just bought), so it defaults on.
     var quickSearch by remember { mutableStateOf(true) }
+    var showScanner by remember { mutableStateOf(false) }
+    var hasCameraPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasCameraPermission = granted
+        if (granted) showScanner = true
+    }
 
     LaunchedEffect(reloadKey) {
         listingsState = ListingsState.Loading
@@ -382,9 +399,32 @@ private fun LotteryPrintApp() {
             onValueChange = { searchQuery = it },
             label = { Text("ടിക്കറ്റ് നമ്പർ(കൾ)") },
             placeholder = { Text("ഉദാ: 1234, 5678, 9012") },
+            trailingIcon = {
+                IconButton(onClick = {
+                    if (hasCameraPermission) showScanner = true
+                    else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }) {
+                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "ബാർകോഡ്/QR സ്കാൻ ചെയ്യുക")
+                }
+            },
             minLines = 3,
             modifier = Modifier.fillMaxWidth()
         )
+        if (showScanner) {
+            QrScannerDialog(
+                onResult = { raw ->
+                    showScanner = false
+                    val digits = extractLastFourDigits(raw)
+                    if (digits != null) {
+                        searchQuery = if (searchQuery.isBlank()) digits else "$searchQuery, $digits"
+                        runSearch(depth = 1)
+                    } else {
+                        searchState = SearchState.Error("സ്കാൻ ചെയ്ത കോഡിൽ അക്കങ്ങളൊന്നും കണ്ടെത്താനായില്ല - നമ്പർ സ്വയം ടൈപ്പ് ചെയ്യുക.")
+                    }
+                },
+                onDismiss = { showScanner = false }
+            )
+        }
         Button(
             onClick = { runSearch(depth = 1) },
             enabled = searchState !is SearchState.Working,
@@ -595,6 +635,16 @@ private fun LotteryPrintApp() {
                     }
                     OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
                         Text("ഷെയർ ചെയ്യുക")
+                    }
+                    OutlinedButton(onClick = {
+                        val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
+                        val outFile = File(outDir, "lottery_format2_${System.currentTimeMillis()}.pdf")
+                        CompactPdfGeneratorV2.generate(s.result, companyName.trim(), outFile, isUnofficial = s.source == ResultSource.UNOFFICIAL)
+                        val name = "Lottery_Result_Format2_${System.currentTimeMillis()}.pdf"
+                        PdfPrinter.saveToDownloads(context, outFile, name)
+                        Toast.makeText(context, "ഡൗൺലോഡ്‌സിലേക്ക് സേവ് ചെയ്തു", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("PDF 2")
                     }
                 }
                 var viewingFullScreen by remember { mutableStateOf(false) }
