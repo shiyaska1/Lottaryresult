@@ -345,7 +345,7 @@ private fun LotteryPrintApp() {
         }
     }
 
-    fun runGeneration(source: ResultSource, block: suspend () -> LotteryResult) {
+    fun runGeneration(source: ResultSource, useFormat2: Boolean, block: suspend () -> LotteryResult) {
         genState = GenerationState.Working
         scope.launch {
             try {
@@ -353,7 +353,11 @@ private fun LotteryPrintApp() {
                     val parsed = block()
                     val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                     val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
-                    CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
+                    if (useFormat2) {
+                        CompactPdfGeneratorV2.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
+                    } else {
+                        CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
+                    }
                     val bitmap = renderFirstPage(outFile)
                     Triple(parsed, outFile, bitmap)
                 }
@@ -363,6 +367,10 @@ private fun LotteryPrintApp() {
             }
         }
     }
+
+    // Asked once, right when a generate button is tapped, instead of always defaulting to
+    // Format 1 and only surfacing Format 2 as an after-the-fact button on the finished result.
+    var pendingGeneration by remember { mutableStateOf<Pair<ResultSource, suspend () -> LotteryResult>?>(null) }
 
     Column(
         modifier = Modifier
@@ -549,7 +557,7 @@ private fun LotteryPrintApp() {
                 Button(
                     onClick = {
                         val target = unofficialTargetOrFallback() ?: return@Button
-                        runGeneration(ResultSource.UNOFFICIAL) {
+                        pendingGeneration = ResultSource.UNOFFICIAL to suspend {
                             try {
                                 val url = UnofficialLotteryResultsClient.resolveUrl(target)
                                 val html = UnofficialLotteryResultsClient.fetchHtml(url)
@@ -569,7 +577,7 @@ private fun LotteryPrintApp() {
                 Button(
                     onClick = {
                         val target = unofficialTargetOrFallback() ?: return@Button
-                        runGeneration(ResultSource.UNOFFICIAL) {
+                        pendingGeneration = ResultSource.UNOFFICIAL to suspend {
                             try {
                                 val url = UnofficialLotteryResultsClient2.guessUrl(target)
                                 val html = UnofficialLotteryResultsClient2.fetchHtml(url)
@@ -587,7 +595,7 @@ private fun LotteryPrintApp() {
             Button(
                 onClick = {
                     val listing = selectedListing ?: return@Button
-                    runGeneration(ResultSource.OFFICIAL) {
+                    pendingGeneration = ResultSource.OFFICIAL to suspend {
                         val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
                         LotteryPdfParser.parsePdfBytes(context, bytes)
                     }
@@ -597,6 +605,26 @@ private fun LotteryPrintApp() {
             ) {
                 Text("ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
             }
+        }
+
+        pendingGeneration?.let { (source, block) ->
+            AlertDialog(
+                onDismissRequest = { pendingGeneration = null },
+                title = { Text("PDF ഫോർമാറ്റ് തിരഞ്ഞെടുക്കുക") },
+                text = { Text("ഏത് ഫോർമാറ്റിൽ ഒറ്റ പേജ് തയ്യാറാക്കണം?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        pendingGeneration = null
+                        runGeneration(source, useFormat2 = false, block)
+                    }) { Text("ഫോർമാറ്റ് 1") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        pendingGeneration = null
+                        runGeneration(source, useFormat2 = true, block)
+                    }) { Text("ഫോർമാറ്റ് 2") }
+                }
+            )
         }
 
         when (val s = genState) {
