@@ -5,11 +5,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Scans a ticket's barcode/QR for the search screen; not required to install/use the rest
-         of the app, so the camera feature itself is marked optional. -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-
     <!-- Grants visibility into every launcher-visible app (Android 11+ package-visibility
          rules would otherwise hide them) so the Quick Links picker can list and launch them,
          without needing the QUERY_ALL_PACKAGES permission. -->

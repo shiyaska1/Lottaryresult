@@ -1,8 +1,6 @@
 package com.keralalottery.print
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
@@ -11,8 +9,6 @@ import android.os.ParcelFileDescriptor
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
@@ -37,7 +32,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import com.keralalottery.print.calculator.CalculatorScreen
 import com.keralalottery.print.data.AppPrefs
 import com.keralalottery.print.data.License
@@ -58,8 +52,6 @@ import com.keralalottery.print.pdf.CompactPdfGenerator
 import com.keralalottery.print.pdf.CompactPdfGeneratorV2
 import com.keralalottery.print.pdf.PdfPrinter
 import com.keralalottery.print.psc.PscScreen
-import com.keralalottery.print.scan.QrScannerDialog
-import com.keralalottery.print.scan.extractLastFourDigits
 import com.keralalottery.print.search.findTicketMatches
 import com.keralalottery.print.ui.ZoomableImageViewer
 import com.keralalottery.print.update.AppUpdater
@@ -254,14 +246,6 @@ private fun LotteryPrintApp() {
     // Quick search: only today's and yesterday's lottery, instead of the whole week - the common
     // case (checking a ticket you just bought), so it defaults on.
     var quickSearch by remember { mutableStateOf(true) }
-    var showScanner by remember { mutableStateOf(false) }
-    var hasCameraPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-    }
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasCameraPermission = granted
-        if (granted) showScanner = true
-    }
 
     LaunchedEffect(reloadKey) {
         listingsState = ListingsState.Loading
@@ -365,40 +349,47 @@ private fun LotteryPrintApp() {
         genState = GenerationState.Working
         scope.launch {
             try {
-                val (result, file, preview, gridFontSize) = withContext(Dispatchers.IO) {
+                val (result, file, preview, fontSize) = withContext(Dispatchers.IO) {
                     val parsed = block()
                     val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                     val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
-                    val fontSize = if (useFormat2) {
-                        val (_, fs) = CompactPdfGeneratorV2.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
-                        fs
+                    val fs = if (useFormat2) {
+                        CompactPdfGeneratorV2.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL).second
                     } else {
-                        CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
-                        null
+                        CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL).second
                     }
                     val bitmap = renderFirstPage(outFile)
-                    GenResult(parsed, outFile, bitmap, fontSize)
+                    GenResult(parsed, outFile, bitmap, fs)
                 }
-                genState = GenerationState.Ready(result, file, preview, source, isFormat2 = useFormat2, gridFontSize = gridFontSize)
+                genState = GenerationState.Ready(result, file, preview, source, isFormat2 = useFormat2, gridFontSize = fontSize)
             } catch (e: Exception) {
                 genState = GenerationState.Error(e.message ?: "എന്തോ പിശക് സംഭവിച്ചു.")
             }
         }
     }
 
-    /** Regenerates the currently-shown Format 2 result at a manually chosen grid font size -
+    /** Regenerates the currently-shown result (either format) at a manually chosen font size -
      * updates the preview in place, no download, so PDF/JPG/Share afterward act on whatever the
-     * user actually settled on. */
-    fun regenerateFormat2(current: GenerationState.Ready, gridFontOverride: Float) {
+     * user actually settled on. Always available, from the very first preview - not just once
+     * someone has picked Format 2. */
+    fun regenerateWithFontSize(current: GenerationState.Ready, fontOverride: Float) {
         scope.launch {
             val (file, preview, fontSize) = withContext(Dispatchers.IO) {
                 val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                 val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
-                val (_, fs) = CompactPdfGeneratorV2.generate(
-                    current.result, companyName.trim(), outFile,
-                    isUnofficial = current.source == ResultSource.UNOFFICIAL,
-                    gridFontOverride = gridFontOverride
-                )
+                val fs = if (current.isFormat2) {
+                    CompactPdfGeneratorV2.generate(
+                        current.result, companyName.trim(), outFile,
+                        isUnofficial = current.source == ResultSource.UNOFFICIAL,
+                        gridFontOverride = fontOverride
+                    ).second
+                } else {
+                    CompactPdfGenerator.generate(
+                        current.result, companyName.trim(), outFile,
+                        isUnofficial = current.source == ResultSource.UNOFFICIAL,
+                        fontSizeOverride = fontOverride
+                    ).second
+                }
                 val bitmap = renderFirstPage(outFile)
                 Triple(outFile, bitmap, fs)
             }
@@ -471,13 +462,13 @@ private fun LotteryPrintApp() {
             is GenerationState.Ready -> {
                 SourceBadge(source = s.source, tierCount = s.result.tiers.size)
 
-                // Format 2 only: shown as soon as the preview is up, right where it's generated -
+                // Always shown, right from the very first preview, for either format -
                 // adjusting it regenerates the PDF and re-renders the preview in place, live, no
                 // download. Only PDF/JPG/Share below actually save anything, once satisfied.
-                if (s.isFormat2 && s.gridFontSize != null) {
+                if (s.gridFontSize != null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("ഗ്രിഡ് ഫോണ്ട് വലുപ്പം:", style = MaterialTheme.typography.labelMedium)
-                        IconButton(onClick = { regenerateFormat2(s, (s.gridFontSize - 0.1f).coerceAtLeast(2f)) }) {
+                        Text("ഫോണ്ട് വലുപ്പം:", style = MaterialTheme.typography.labelMedium)
+                        IconButton(onClick = { regenerateWithFontSize(s, (s.gridFontSize - 0.1f).coerceAtLeast(2f)) }) {
                             Icon(Icons.Filled.Remove, contentDescription = "ഫോണ്ട് ചെറുതാക്കുക")
                         }
                         Text(
@@ -487,7 +478,7 @@ private fun LotteryPrintApp() {
                                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
-                        IconButton(onClick = { regenerateFormat2(s, s.gridFontSize + 0.1f) }) {
+                        IconButton(onClick = { regenerateWithFontSize(s, s.gridFontSize + 0.1f) }) {
                             Icon(Icons.Filled.Add, contentDescription = "ഫോണ്ട് വലുതാക്കുക")
                         }
                     }
@@ -532,111 +523,8 @@ private fun LotteryPrintApp() {
             }
         }
 
-        HorizontalDivider()
-        Text("ലോട്ടറി ഫലം — ഒറ്റ പേജ് പ്രിന്റ്", style = MaterialTheme.typography.headlineSmall)
-
-        OutlinedTextField(
-            value = companyName,
-            onValueChange = { companyName = it },
-            label = { Text("ഹെഡർ / കമ്പനി പേര്") },
-            placeholder = { Text("ഉദാ: ശ്രീ ലക്കി ഏജൻസീസ്") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        HorizontalDivider()
-        Text("ടിക്കറ്റ് നമ്പർ പരിശോധിക്കുക", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "ഒന്നിലധികം ടിക്കറ്റ് നമ്പറുകൾ കോമയിട്ട് വേർതിരിച്ച് നൽകാം (ഉദാ: 1234, 5678). ഏതെങ്കിലും ഭാഗം മതി.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = quickSearch, onCheckedChange = { quickSearch = it })
-            Text("ക്വിക്ക് സെർച്ച് (ഇന്നും ഇന്നലെയും മാത്രം)")
-        }
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = { Text("ടിക്കറ്റ് നമ്പർ(കൾ)") },
-            placeholder = { Text("ഉദാ: 1234, 5678, 9012") },
-            trailingIcon = {
-                IconButton(onClick = {
-                    if (hasCameraPermission) showScanner = true
-                    else cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                }) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = "ബാർകോഡ്/QR സ്കാൻ ചെയ്യുക")
-                }
-            },
-            minLines = 3,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (showScanner) {
-            QrScannerDialog(
-                onResult = { raw ->
-                    showScanner = false
-                    val digits = extractLastFourDigits(raw)
-                    if (digits != null) {
-                        searchQuery = if (searchQuery.isBlank()) digits else "$searchQuery, $digits"
-                        runSearch(depth = 1)
-                    } else {
-                        searchState = SearchState.Error("സ്കാൻ ചെയ്ത കോഡിൽ അക്കങ്ങളൊന്നും കണ്ടെത്താനായില്ല - നമ്പർ സ്വയം ടൈപ്പ് ചെയ്യുക.")
-                    }
-                },
-                onDismiss = { showScanner = false }
-            )
-        }
-        Button(
-            onClick = { runSearch(depth = 1) },
-            enabled = searchState !is SearchState.Working,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("തിരയുക")
-        }
-        when (val ss = searchState) {
-            SearchState.Idle -> Unit
-            SearchState.Working -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("തിരയുന്നു…")
-            }
-            is SearchState.Error -> Text(ss.message, color = MaterialTheme.colorScheme.error)
-            is SearchState.Done -> {
-                if (ss.matches.isNotEmpty()) {
-                    Text(
-                        "സമ്മാനം ലഭിച്ചു!",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    ss.matches.forEach { m ->
-                        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                            Text(
-                                "നമ്പർ ${m.query}: ${m.tierLabel} — ₹${CompactPdfGenerator.formatAmount(m.amount)}",
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text("ടിക്കറ്റ്: ${m.number}" + if (m.place.isNotBlank()) " (${m.place})" else "")
-                            Text(
-                                "${m.lotteryName} (${m.drawNumber}) — ${m.drawDate} • ${if (m.source == ResultSource.OFFICIAL) "ഔദ്യോഗികം" else "അനൗദ്യോഗികം"}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                        HorizontalDivider()
-                    }
-                }
-                if (ss.notFoundQueries.isNotEmpty()) {
-                    Text(
-                        "ഈ നമ്പറുകൾക്ക് സമ്മാനം കണ്ടെത്താനായില്ല: ${ss.notFoundQueries.joinToString(", ")}",
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    TextButton(onClick = { runSearch(depth = ss.depthTried + 1, queriesOverride = ss.notFoundQueries, previousMatches = ss.matches) }) {
-                        Text("മുൻ തീയതി പരിശോധിക്കുക")
-                    }
-                }
-            }
-        }
-
+        // Generate controls sit right under the preview, not buried below the search section -
+        // the preview above updates the moment one of these is used.
         HorizontalDivider()
         Text("ഏറ്റവും പുതിയ ഔദ്യോഗിക ഫലം എടുക്കുക", style = MaterialTheme.typography.titleMedium)
 
@@ -778,6 +666,88 @@ private fun LotteryPrintApp() {
                     }) { Text("ഫോർമാറ്റ് 2") }
                 }
             )
+        }
+
+        HorizontalDivider()
+        Text("ലോട്ടറി ഫലം — ഒറ്റ പേജ് പ്രിന്റ്", style = MaterialTheme.typography.headlineSmall)
+
+        OutlinedTextField(
+            value = companyName,
+            onValueChange = { companyName = it },
+            label = { Text("ഹെഡർ / കമ്പനി പേര്") },
+            placeholder = { Text("ഉദാ: ശ്രീ ലക്കി ഏജൻസീസ്") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        HorizontalDivider()
+        Text("ടിക്കറ്റ് നമ്പർ പരിശോധിക്കുക", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "ഒന്നിലധികം ടിക്കറ്റ് നമ്പറുകൾ കോമയിട്ട് വേർതിരിച്ച് നൽകാം (ഉദാ: 1234, 5678). ഏതെങ്കിലും ഭാഗം മതി.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = quickSearch, onCheckedChange = { quickSearch = it })
+            Text("ക്വിക്ക് സെർച്ച് (ഇന്നും ഇന്നലെയും മാത്രം)")
+        }
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("ടിക്കറ്റ് നമ്പർ(കൾ)") },
+            placeholder = { Text("ഉദാ: 1234, 5678, 9012") },
+            minLines = 3,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = { runSearch(depth = 1) },
+            enabled = searchState !is SearchState.Working,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("തിരയുക")
+        }
+        when (val ss = searchState) {
+            SearchState.Idle -> Unit
+            SearchState.Working -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("തിരയുന്നു…")
+            }
+            is SearchState.Error -> Text(ss.message, color = MaterialTheme.colorScheme.error)
+            is SearchState.Done -> {
+                if (ss.matches.isNotEmpty()) {
+                    Text(
+                        "സമ്മാനം ലഭിച്ചു!",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    ss.matches.forEach { m ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text(
+                                "നമ്പർ ${m.query}: ${m.tierLabel} — ₹${CompactPdfGenerator.formatAmount(m.amount)}",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text("ടിക്കറ്റ്: ${m.number}" + if (m.place.isNotBlank()) " (${m.place})" else "")
+                            Text(
+                                "${m.lotteryName} (${m.drawNumber}) — ${m.drawDate} • ${if (m.source == ResultSource.OFFICIAL) "ഔദ്യോഗികം" else "അനൗദ്യോഗികം"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        HorizontalDivider()
+                    }
+                }
+                if (ss.notFoundQueries.isNotEmpty()) {
+                    Text(
+                        "ഈ നമ്പറുകൾക്ക് സമ്മാനം കണ്ടെത്താനായില്ല: ${ss.notFoundQueries.joinToString(", ")}",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    TextButton(onClick = { runSearch(depth = ss.depthTried + 1, queriesOverride = ss.notFoundQueries, previousMatches = ss.matches) }) {
+                        Text("മുൻ തീയതി പരിശോധിക്കുക")
+                    }
+                }
+            }
         }
     }
 }

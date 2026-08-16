@@ -49,9 +49,18 @@ object CompactPdfGenerator {
 
     /** [isUnofficial] adds one extra bold warning line above the usual footer note - the only
      * difference between an official and unofficial page, so the rest of the layout (and the
-     * font-size search) stays identical either way. */
-    fun generate(result: LotteryResult, companyName: String, outputFile: File, isUnofficial: Boolean = false): File {
-        val plan = plan(result, companyName, A4, isUnofficial)
+     * font-size search) stays identical either way. [fontSizeOverride], when given, replaces the
+     * auto-fit search with this exact value - lets someone nudge the whole page's font up or
+     * down by hand and regenerate. Returns the font size actually used, whether it came from the
+     * override or the search, so the caller can show it and offer to adjust further. */
+    fun generate(
+        result: LotteryResult,
+        companyName: String,
+        outputFile: File,
+        isUnofficial: Boolean = false,
+        fontSizeOverride: Float? = null
+    ): Pair<File, Float> {
+        val plan = plan(result, companyName, A4, isUnofficial, fontSizeOverride)
 
         val (pageW, pageH) = plan.pageSize
         val document = PdfDocument()
@@ -62,7 +71,7 @@ object CompactPdfGenerator {
 
         FileOutputStream(outputFile).use { document.writeTo(it) }
         document.close()
-        return outputFile
+        return outputFile to plan.numberFontSize
     }
 
     // ---- layout model ------------------------------------------------------
@@ -85,12 +94,12 @@ object CompactPdfGenerator {
         else -> Kind.GRID
     }
 
-    private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean): Plan {
+    private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean, fontSizeOverride: Float? = null): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
         val availableHeight = pageH - MARGIN * 2 - FOOTER_HEIGHT
 
-        var fs = CEILING_FONT
+        var fs = fontSizeOverride?.coerceIn(MIN_FONT, CEILING_FONT) ?: CEILING_FONT
         var rows: List<TierRows> = emptyList()
 
         while (true) {
@@ -152,6 +161,9 @@ object CompactPdfGenerator {
                 }
             }
 
+            // A manual override is used exactly as given, fit or not - the auto-fit search only
+            // runs when nobody has picked a size by hand.
+            if (fontSizeOverride != null) break
             if (widthOk && HEADER_FIXED_TOP + bodyHeight <= availableHeight) break
             if (fs <= MIN_FONT) break
             fs -= 0.25f
