@@ -477,7 +477,7 @@ private fun LotteryPrintApp() {
                 if (s.isFormat2 && s.gridFontSize != null) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("ഗ്രിഡ് ഫോണ്ട് വലുപ്പം:", style = MaterialTheme.typography.labelMedium)
-                        IconButton(onClick = { regenerateFormat2(s, (s.gridFontSize - 1f).coerceAtLeast(2f)) }) {
+                        IconButton(onClick = { regenerateFormat2(s, (s.gridFontSize - 0.1f).coerceAtLeast(2f)) }) {
                             Icon(Icons.Filled.Remove, contentDescription = "ഫോണ്ട് ചെറുതാക്കുക")
                         }
                         Text(
@@ -487,7 +487,7 @@ private fun LotteryPrintApp() {
                                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
-                        IconButton(onClick = { regenerateFormat2(s, s.gridFontSize + 1f) }) {
+                        IconButton(onClick = { regenerateFormat2(s, s.gridFontSize + 0.1f) }) {
                             Icon(Icons.Filled.Add, contentDescription = "ഫോണ്ട് വലുതാക്കുക")
                         }
                     }
