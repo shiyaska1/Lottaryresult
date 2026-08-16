@@ -68,15 +68,6 @@ object CompactPdfGeneratorV2 {
         else -> Kind.GRID
     }
 
-    /** A grid tier's box must be tall enough for both its own number rows AND its rotated
-     * spine label (whose printed length becomes a *height* requirement once rotated 90°) -
-     * shared by plan() and draw() so the two can never compute a different box size. */
-    private fun gridBoxHeight(fs: Float, spinePaint: Paint, label: String, amount: String, rowCount: Int): Float {
-        val rowsHeight = rowCount.coerceAtLeast(1) * fs * ROW_LEADING
-        val labelLength = spinePaint.measureText("$label: $amount") + SPINE_PAD * 2f
-        return maxOf(rowsHeight, labelLength)
-    }
-
     private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
@@ -125,7 +116,11 @@ object CompactPdfGeneratorV2 {
                         val columns = if (colWidth <= 0f) 1 else maxOf(1, (numbersWidth / colWidth).toInt())
                         val count = tier.numbers.size
                         val rowCount = if (count == 0) 0 else (count + columns - 1) / columns
-                        val boxHeight = gridBoxHeight(fs, spinePaint, label, amount, rowCount)
+                        // Box height tracks the numbers only - the spine's rotated amount label
+                        // (short: just the amount, not the full label) has to fit inside whatever
+                        // that comes to, rather than inflating it, so the grid never carries dead
+                        // space around numbers that don't need it.
+                        val boxHeight = rowCount.coerceAtLeast(1) * fs * ROW_LEADING
                         bodyHeight += boxHeight + TIER_GAP
                         TierRows(tier, columns = columns, kind = kind, spineWidth = spineWidth, boxHeight = boxHeight)
                     }
@@ -227,7 +222,10 @@ object CompactPdfGeneratorV2 {
         drawFit(canvas, plan.companyName.ifBlank { " " }, centerX, y, contentWidth, titlePaint)
         y += 18f
         val thirdWidth = contentWidth / 3f
-        drawFit(canvas, "${h.drawNumber}th", MARGIN, y, thirdWidth, letterheadLeft)
+        // h.drawNumber sometimes already carries its own ordinal suffix (the official PDF
+        // writes it that way) and sometimes doesn't - appending one here unconditionally used
+        // to double up as "SK-65thth" whenever the source already had it, so it's shown as-is.
+        drawFit(canvas, h.drawNumber, MARGIN, y, thirdWidth, letterheadLeft)
         drawFit(canvas, h.lotteryName, centerX, y, thirdWidth, letterheadCenter)
         drawFit(canvas, h.drawDate, pageW - MARGIN, y, thirdWidth, letterheadRight)
         y += 8f
@@ -277,6 +275,8 @@ object CompactPdfGeneratorV2 {
                 Kind.GRID -> {
                     // y is the box's TOP edge here (not a text baseline) - the spine and every
                     // number row sit at-or-below it, mirroring the exact height plan() budgeted.
+                    // Numbers start right at the top - no centering gap - since the box height
+                    // now tracks them exactly with nothing else competing for the space.
                     val boxTop = y
                     val boxBottom = boxTop + tr.boxHeight
                     canvas.drawRect(MARGIN, boxTop, MARGIN + tr.spineWidth, boxBottom, spineBg)
@@ -286,23 +286,18 @@ object CompactPdfGeneratorV2 {
                     val spineCenterY = (boxTop + boxBottom) / 2f
                     canvas.rotate(-90f, spineCenterX, spineCenterY)
                     val spineFm = spinePaint.fontMetrics
-                    canvas.drawText("$label: $amountText", spineCenterX, spineCenterY - (spineFm.ascent + spineFm.descent) / 2f, spinePaint)
+                    canvas.drawText(amountText, spineCenterX, spineCenterY - (spineFm.ascent + spineFm.descent) / 2f, spinePaint)
                     canvas.restore()
 
                     val columns = tr.columns.coerceAtLeast(1)
                     val numbersLeft = MARGIN + tr.spineWidth + GUTTER
                     val numbersWidth = contentWidth - tr.spineWidth - GUTTER
                     val colWidth = numbersWidth / columns
-                    val rowsHeight = (if (tier.numbers.isEmpty()) 1 else (tier.numbers.size + columns - 1) / columns) * plan.numberFontSize * ROW_LEADING
-                    // Numbers are vertically centered in the box, so a short grid (a spine tall
-                    // enough only for its own rotated label) doesn't leave its numbers pinned to
-                    // the top with dead space below them.
-                    val rowsTop = boxTop + (tr.boxHeight - rowsHeight) / 2f
                     tier.numbers.forEachIndexed { index, num ->
                         val col = index % columns
                         val row = index / columns
                         val x = numbersLeft + col * colWidth
-                        val rowY = rowsTop + (-numberPaint.fontMetrics.ascent) + row * plan.numberFontSize * ROW_LEADING
+                        val rowY = boxTop + (-numberPaint.fontMetrics.ascent) + row * plan.numberFontSize * ROW_LEADING
                         canvas.drawText(num, x, rowY, numberPaint)
                     }
                     y = boxBottom
