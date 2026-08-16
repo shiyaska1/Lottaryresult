@@ -173,13 +173,25 @@ object CompactPdfGeneratorV2 {
         val availableHeight = pageH - MARGIN * 2 - FOOTER_HEIGHT
 
         val winnerFs = findWinnerFontSize(result, contentWidth)
+        val winnerLineHeight = (winnerFs + 2f) * ROW_LEADING
+        val winnerDescent = labelPaint(winnerFs).fontMetrics.descent
         val firstLineGap = -labelPaint(winnerFs).fontMetrics.ascent + 3f
 
+        // Each tier's last line only needs to clear its own descent, not a full line-height's
+        // worth of trailing space as if another line were about to follow it - reserving a
+        // whole extra line after the very last bumper/consolation row was exactly the gap
+        // showing up as dead space before the grid tiers begin.
         var nonGridHeight = firstLineGap
         for (tier in result.tiers) {
             when (kindOf(tier)) {
-                Kind.WINNER -> nonGridHeight += tier.winners.size.coerceAtLeast(1) * (winnerFs + 2f) * ROW_LEADING + TIER_GAP
-                Kind.CONSOLATION -> nonGridHeight += collapseConsolation(tier.numbers).ifEmpty { listOf("") }.size * (winnerFs + 2f) * ROW_LEADING + TIER_GAP
+                Kind.WINNER -> {
+                    val n = tier.winners.size.coerceAtLeast(1)
+                    nonGridHeight += (n - 1) * winnerLineHeight + winnerDescent + TIER_GAP
+                }
+                Kind.CONSOLATION -> {
+                    val n = collapseConsolation(tier.numbers).ifEmpty { listOf("") }.size
+                    nonGridHeight += (n - 1) * winnerLineHeight + winnerDescent + TIER_GAP
+                }
                 Kind.GRID -> {}
             }
         }
@@ -333,18 +345,23 @@ object CompactPdfGeneratorV2 {
                 Kind.WINNER -> {
                     val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                     val winners = tier.winners.ifEmpty { listOf(null) }
+                    val lineHeight = (tr.fontSize + 2f) * ROW_LEADING
                     winners.forEachIndexed { i, winner ->
-                        canvas.drawText(winnerLine(label, fullAmount, winner, i == 0), leftX, y, winnerLabelPaint)
-                        y += (tr.fontSize + 2f) * ROW_LEADING
+                        canvas.drawText(winnerLine(label, fullAmount, winner, i == 0), leftX, y + i * lineHeight, winnerLabelPaint)
                     }
+                    // Only the last line's own descent, not a full extra line-height as if
+                    // another line were coming next - that overshoot was the visible gap before
+                    // the grid tiers started.
+                    y += (winners.size - 1) * lineHeight + winnerLabelPaint.fontMetrics.descent
                 }
                 Kind.CONSOLATION -> {
                     val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                     val lines = collapseConsolation(tier.numbers).ifEmpty { listOf("") }
+                    val lineHeight = (tr.fontSize + 2f) * ROW_LEADING
                     lines.forEachIndexed { index, entry ->
-                        canvas.drawText(consolationLine(label, fullAmount, entry, index == 0), leftX, y, winnerLabelPaint)
-                        y += (tr.fontSize + 2f) * ROW_LEADING
+                        canvas.drawText(consolationLine(label, fullAmount, entry, index == 0), leftX, y + index * lineHeight, winnerLabelPaint)
                     }
+                    y += (lines.size - 1) * lineHeight + winnerLabelPaint.fontMetrics.descent
                 }
                 Kind.GRID -> {
                     val amountText = formatAmountNoSuffix(tier.amount)

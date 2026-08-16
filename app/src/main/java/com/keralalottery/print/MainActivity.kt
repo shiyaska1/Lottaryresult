@@ -75,11 +75,22 @@ private sealed interface ListingsState {
 
 private enum class ResultSource { OFFICIAL, UNOFFICIAL }
 
+private data class GenResult(val result: LotteryResult, val file: File, val preview: Bitmap, val gridFontSize: Float?)
+
 private sealed interface GenerationState {
     data object Idle : GenerationState
     data object Working : GenerationState
     data class Error(val message: String) : GenerationState
-    data class Ready(val result: LotteryResult, val file: File, val preview: Bitmap, val source: ResultSource) : GenerationState
+    /** [gridFontSize] is only set for a Format 2 result - what its grid tiers' auto-fit (or a
+     * manual adjustment) landed on, shown next to the preview so it can be nudged in place. */
+    data class Ready(
+        val result: LotteryResult,
+        val file: File,
+        val preview: Bitmap,
+        val source: ResultSource,
+        val isFormat2: Boolean,
+        val gridFontSize: Float? = null
+    ) : GenerationState
 }
 
 /** One matched ticket, flattened with which draw/source it came from - a multi-number search
@@ -353,22 +364,44 @@ private fun LotteryPrintApp() {
         genState = GenerationState.Working
         scope.launch {
             try {
-                val (result, file, preview) = withContext(Dispatchers.IO) {
+                val (result, file, preview, gridFontSize) = withContext(Dispatchers.IO) {
                     val parsed = block()
                     val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
                     val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
-                    if (useFormat2) {
-                        CompactPdfGeneratorV2.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
+                    val fontSize = if (useFormat2) {
+                        val (_, fs) = CompactPdfGeneratorV2.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
+                        fs
                     } else {
                         CompactPdfGenerator.generate(parsed, companyName.trim(), outFile, isUnofficial = source == ResultSource.UNOFFICIAL)
+                        null
                     }
                     val bitmap = renderFirstPage(outFile)
-                    Triple(parsed, outFile, bitmap)
+                    GenResult(parsed, outFile, bitmap, fontSize)
                 }
-                genState = GenerationState.Ready(result, file, preview, source)
+                genState = GenerationState.Ready(result, file, preview, source, isFormat2 = useFormat2, gridFontSize = gridFontSize)
             } catch (e: Exception) {
                 genState = GenerationState.Error(e.message ?: "എന്തോ പിശക് സംഭവിച്ചു.")
             }
+        }
+    }
+
+    /** Regenerates the currently-shown Format 2 result at a manually chosen grid font size -
+     * updates the preview in place, no download, so PDF/JPG/Share afterward act on whatever the
+     * user actually settled on. */
+    fun regenerateFormat2(current: GenerationState.Ready, gridFontOverride: Float) {
+        scope.launch {
+            val (file, preview, fontSize) = withContext(Dispatchers.IO) {
+                val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
+                val outFile = File(outDir, "lottery_result_${System.currentTimeMillis()}.pdf")
+                val (_, fs) = CompactPdfGeneratorV2.generate(
+                    current.result, companyName.trim(), outFile,
+                    isUnofficial = current.source == ResultSource.UNOFFICIAL,
+                    gridFontOverride = gridFontOverride
+                )
+                val bitmap = renderFirstPage(outFile)
+                Triple(outFile, bitmap, fs)
+            }
+            genState = current.copy(file = file, preview = preview, gridFontSize = fontSize)
         }
     }
 
@@ -645,6 +678,29 @@ private fun LotteryPrintApp() {
                 HorizontalDivider()
                 Text("പ്രിവ്യൂ", style = MaterialTheme.typography.titleMedium)
                 SourceBadge(source = s.source, tierCount = s.result.tiers.size)
+
+                // Format 2 only: shown as soon as the preview is up, right where it's generated -
+                // adjusting it regenerates the PDF and re-renders the preview in place, live, no
+                // download. Only PDF/JPG/Share below actually save anything, once satisfied.
+                if (s.isFormat2 && s.gridFontSize != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("ഗ്രിഡ് ഫോണ്ട് വലുപ്പം:", style = MaterialTheme.typography.labelMedium)
+                        IconButton(onClick = { regenerateFormat2(s, (s.gridFontSize - 1f).coerceAtLeast(2f)) }) {
+                            Icon(Icons.Filled.Remove, contentDescription = "ഫോണ്ട് ചെറുതാക്കുക")
+                        }
+                        Text(
+                            "%.1f".format(s.gridFontSize),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                        IconButton(onClick = { regenerateFormat2(s, s.gridFontSize + 1f) }) {
+                            Icon(Icons.Filled.Add, contentDescription = "ഫോണ്ട് വലുതാക്കുക")
+                        }
+                    }
+                }
+
                 // Actions come before the (often tall) preview image so they stay reachable
                 // without scrolling all the way down past it, near the phone's nav bar.
                 Row(
@@ -667,46 +723,6 @@ private fun LotteryPrintApp() {
                     }
                     OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
                         Text("ഷെയർ ചെയ്യുക")
-                    }
-                }
-
-                // Format 2's grid number size is auto-fit, but "auto" can still leave a gap on
-                // some draws - this lets it be nudged up or down by hand and regenerated
-                // instantly, without re-fetching anything, showing exactly what size it landed on.
-                var format2GridFontSize by remember(s.result) { mutableStateOf<Float?>(null) }
-
-                fun generateFormat2(override: Float?) {
-                    val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
-                    val outFile = File(outDir, "lottery_format2_${System.currentTimeMillis()}.pdf")
-                    val (file, usedFontSize) = CompactPdfGeneratorV2.generate(
-                        s.result, companyName.trim(), outFile,
-                        isUnofficial = s.source == ResultSource.UNOFFICIAL,
-                        gridFontOverride = override
-                    )
-                    format2GridFontSize = usedFontSize
-                    val name = "Lottery_Result_Format2_${System.currentTimeMillis()}.pdf"
-                    PdfPrinter.saveToDownloads(context, file, name)
-                    Toast.makeText(context, "ഡൗൺലോഡ്‌സിലേക്ക് സേവ് ചെയ്തു", Toast.LENGTH_SHORT).show()
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { generateFormat2(null) }) {
-                        Text("PDF 2")
-                    }
-                    format2GridFontSize?.let { fs ->
-                        IconButton(onClick = { generateFormat2((fs - 1f).coerceAtLeast(2f)) }) {
-                            Icon(Icons.Filled.Remove, contentDescription = "ഫോണ്ട് ചെറുതാക്കുക")
-                        }
-                        Text(
-                            "%.1f".format(fs),
-                            style = MaterialTheme.typography.titleSmall,
-                            modifier = Modifier
-                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                        IconButton(onClick = { generateFormat2(fs + 1f) }) {
-                            Icon(Icons.Filled.Add, contentDescription = "ഫോണ്ട് വലുതാക്കുക")
-                        }
                     }
                 }
                 var viewingFullScreen by remember { mutableStateOf(false) }
