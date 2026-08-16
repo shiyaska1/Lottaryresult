@@ -15,14 +15,18 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -664,15 +668,45 @@ private fun LotteryPrintApp() {
                     OutlinedButton(onClick = { PdfPrinter.share(context, s.file) }) {
                         Text("ഷെയർ ചെയ്യുക")
                     }
-                    OutlinedButton(onClick = {
-                        val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
-                        val outFile = File(outDir, "lottery_format2_${System.currentTimeMillis()}.pdf")
-                        CompactPdfGeneratorV2.generate(s.result, companyName.trim(), outFile, isUnofficial = s.source == ResultSource.UNOFFICIAL)
-                        val name = "Lottery_Result_Format2_${System.currentTimeMillis()}.pdf"
-                        PdfPrinter.saveToDownloads(context, outFile, name)
-                        Toast.makeText(context, "ഡൗൺലോഡ്‌സിലേക്ക് സേവ് ചെയ്തു", Toast.LENGTH_SHORT).show()
-                    }) {
+                }
+
+                // Format 2's grid number size is auto-fit, but "auto" can still leave a gap on
+                // some draws - this lets it be nudged up or down by hand and regenerated
+                // instantly, without re-fetching anything, showing exactly what size it landed on.
+                var format2GridFontSize by remember(s.result) { mutableStateOf<Float?>(null) }
+
+                fun generateFormat2(override: Float?) {
+                    val outDir = File(context.cacheDir, "pdfs").apply { mkdirs() }
+                    val outFile = File(outDir, "lottery_format2_${System.currentTimeMillis()}.pdf")
+                    val (file, usedFontSize) = CompactPdfGeneratorV2.generate(
+                        s.result, companyName.trim(), outFile,
+                        isUnofficial = s.source == ResultSource.UNOFFICIAL,
+                        gridFontOverride = override
+                    )
+                    format2GridFontSize = usedFontSize
+                    val name = "Lottery_Result_Format2_${System.currentTimeMillis()}.pdf"
+                    PdfPrinter.saveToDownloads(context, file, name)
+                    Toast.makeText(context, "ഡൗൺലോഡ്‌സിലേക്ക് സേവ് ചെയ്തു", Toast.LENGTH_SHORT).show()
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { generateFormat2(null) }) {
                         Text("PDF 2")
+                    }
+                    format2GridFontSize?.let { fs ->
+                        IconButton(onClick = { generateFormat2((fs - 1f).coerceAtLeast(2f)) }) {
+                            Icon(Icons.Filled.Remove, contentDescription = "ഫോണ്ട് ചെറുതാക്കുക")
+                        }
+                        Text(
+                            "%.1f".format(fs),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                        IconButton(onClick = { generateFormat2(fs + 1f) }) {
+                            Icon(Icons.Filled.Add, contentDescription = "ഫോണ്ട് വലുതാക്കുക")
+                        }
                     }
                 }
                 var viewingFullScreen by remember { mutableStateOf(false) }
