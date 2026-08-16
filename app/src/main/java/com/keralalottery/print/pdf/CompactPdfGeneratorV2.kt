@@ -26,7 +26,13 @@ object CompactPdfGeneratorV2 {
     private const val ROW_LEADING = 1.12f
     private const val HEADER_FIXED_TOP = 46f
     private const val TIER_GAP = 3f
-    private const val CEILING_FONT = 48f
+    // Much higher than Format 1's ceiling deliberately: the one-row badge (vs. a full-width bar
+    // plus its own gap) made this layout enough more compact that a light draw was hitting 48pt
+    // as a hard cap before the page was anywhere near full - the search only ever shrinks from
+    // this starting point, so it needs real headroom to find how large a sparse result can
+    // actually grow. The width check (a line too wide for the page) still caps it appropriately
+    // for a dense draw long before this is ever reached.
+    private const val CEILING_FONT = 220f
     private const val MIN_FONT = 2f
     private const val FOOTER_HEIGHT = 16f
     private const val FOOTER_TEXT = "വാട്സ്ആപ്പിൽ ബന്ധപ്പെടുക: 9961128378"
