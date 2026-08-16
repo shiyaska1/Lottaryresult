@@ -14,10 +14,10 @@ import java.io.FileOutputStream
 /**
  * Second one-page layout, same auto-fit-font search as [CompactPdfGenerator] (grow the font
  * from a generous ceiling, shrink until everything fits) but the 4th-9th prize tiers get a
- * narrow black spine down the left of their own number grid, with the amount rotated to read
- * bottom-to-top, instead of a full-width horizontal bar sitting above the grid. The spine shares
- * its height with the numbers next to it rather than adding a bar's own height on top, so this
- * format packs noticeably tighter than the first one for the same content.
+ * short black amount badge - one row tall, horizontal text, no rotation - sitting in the first
+ * number slot of the grid instead of a full-width bar above it. The badge only ever costs a
+ * single row's height (it shares the first row with numbers rather than getting a row of its
+ * own), which is why this format packs tighter than the first one for the same content.
  */
 object CompactPdfGeneratorV2 {
 
@@ -31,7 +31,6 @@ object CompactPdfGeneratorV2 {
     private const val FOOTER_HEIGHT = 16f
     private const val FOOTER_TEXT = "വാട്സ്ആപ്പിൽ ബന്ധപ്പെടുക: 9961128378"
     private const val WAITING_TEXT = "ഫലം ഉടൻ വരും"
-    private const val SPINE_PAD = 4f
 
     private val A4 = 595f to 842f
 
@@ -50,7 +49,7 @@ object CompactPdfGeneratorV2 {
 
     // ---- layout model ------------------------------------------------------
 
-    private class TierRows(val tier: PrizeTier, val columns: Int, val kind: Kind, val spineWidth: Float, val boxHeight: Float)
+    private class TierRows(val tier: PrizeTier, val columns: Int, val colWidth: Float, val kind: Kind, val boxHeight: Float)
     private enum class Kind { WINNER, CONSOLATION, GRID }
 
     private class Plan(
@@ -68,6 +67,26 @@ object CompactPdfGeneratorV2 {
         else -> Kind.GRID
     }
 
+    /** Row/column of the [index]-th number in a grid tier whose very first slot is occupied by
+     * the amount badge instead of a number - shared by plan() (to size the box) and draw() (to
+     * place the numbers) so they can never disagree. */
+    private fun gridPosition(index: Int, columns: Int): Pair<Int, Int> {
+        val firstRowSlots = (columns - 1).coerceAtLeast(0)
+        return if (index < firstRowSlots) {
+            0 to (index + 1)
+        } else {
+            val adjusted = index - firstRowSlots
+            (1 + adjusted / columns) to (adjusted % columns)
+        }
+    }
+
+    private fun gridRowCount(count: Int, columns: Int): Int {
+        val firstRowSlots = (columns - 1).coerceAtLeast(0)
+        if (count <= firstRowSlots) return 1
+        val remaining = count - firstRowSlots
+        return 1 + (remaining + columns - 1) / columns
+    }
+
     private fun plan(result: LotteryResult, companyName: String, pageSize: Pair<Float, Float>, isUnofficial: Boolean): Plan {
         val (pageW, pageH) = pageSize
         val contentWidth = pageW - MARGIN * 2
@@ -79,7 +98,7 @@ object CompactPdfGeneratorV2 {
         while (true) {
             val numberPaint = numberPaint(fs)
             val labelPaint = labelPaint(fs)
-            val spinePaint = labelPaint(fs)
+            val badgePaint = labelPaint(fs)
             val firstLineGap = -labelPaint.fontMetrics.ascent + 3f
             var bodyHeight = firstLineGap
             var widthOk = true
@@ -87,42 +106,38 @@ object CompactPdfGeneratorV2 {
             rows = result.tiers.map { tier ->
                 val kind = kindOf(tier)
                 val label = displayLabel(tier)
-                val amount = CompactPdfGenerator.formatAmount(tier.amount)
+                val amount = formatAmountNoSuffix(tier.amount)
                 when (kind) {
                     Kind.WINNER -> {
+                        val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                         val winners = tier.winners.ifEmpty { listOf(null) }
                         winners.forEachIndexed { i, winner ->
-                            if (labelPaint.measureText(winnerLine(label, amount, winner, i == 0)) > contentWidth) widthOk = false
+                            if (labelPaint.measureText(winnerLine(label, fullAmount, winner, i == 0)) > contentWidth) widthOk = false
                         }
                         val n = tier.winners.size.coerceAtLeast(1)
                         bodyHeight += n * (fs + 2f) * ROW_LEADING + TIER_GAP
-                        TierRows(tier, columns = 1, kind = kind, spineWidth = 0f, boxHeight = 0f)
+                        TierRows(tier, columns = 1, colWidth = 0f, kind = kind, boxHeight = 0f)
                     }
                     Kind.CONSOLATION -> {
+                        val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                         val lines = collapseConsolation(tier.numbers).ifEmpty { listOf("") }
                         lines.forEachIndexed { i, entry ->
-                            if (labelPaint.measureText(consolationLine(label, amount, entry, i == 0)) > contentWidth) widthOk = false
+                            if (labelPaint.measureText(consolationLine(label, fullAmount, entry, i == 0)) > contentWidth) widthOk = false
                         }
                         bodyHeight += lines.size * (fs + 2f) * ROW_LEADING + TIER_GAP
-                        TierRows(tier, columns = 1, kind = kind, spineWidth = 0f, boxHeight = 0f)
+                        TierRows(tier, columns = 1, colWidth = 0f, kind = kind, boxHeight = 0f)
                     }
                     Kind.GRID -> {
-                        val spineFm = spinePaint.fontMetrics
-                        val spineWidth = (spineFm.descent - spineFm.ascent) + SPINE_PAD * 2f
-                        val numbersWidth = contentWidth - spineWidth - GUTTER
-                        val widest = tier.numbers.maxOfOrNull { numberPaint.measureText(it) } ?: 0f
-                        if (widest > numbersWidth) widthOk = false
+                        val widestNumber = tier.numbers.maxOfOrNull { numberPaint.measureText(it) } ?: 0f
+                        val badgeWidth = badgePaint.measureText(amount)
+                        val widest = maxOf(widestNumber, badgeWidth)
+                        if (widest > contentWidth) widthOk = false
                         val colWidth = widest + GUTTER
-                        val columns = if (colWidth <= 0f) 1 else maxOf(1, (numbersWidth / colWidth).toInt())
-                        val count = tier.numbers.size
-                        val rowCount = if (count == 0) 0 else (count + columns - 1) / columns
-                        // Box height tracks the numbers only - the spine's rotated amount label
-                        // (short: just the amount, not the full label) has to fit inside whatever
-                        // that comes to, rather than inflating it, so the grid never carries dead
-                        // space around numbers that don't need it.
-                        val boxHeight = rowCount.coerceAtLeast(1) * fs * ROW_LEADING
+                        val columns = if (colWidth <= 0f) 1 else maxOf(1, (contentWidth / colWidth).toInt())
+                        val rowCount = gridRowCount(tier.numbers.size, columns)
+                        val boxHeight = rowCount * fs * ROW_LEADING
                         bodyHeight += boxHeight + TIER_GAP
-                        TierRows(tier, columns = columns, kind = kind, spineWidth = spineWidth, boxHeight = boxHeight)
+                        TierRows(tier, columns = columns, colWidth = colWidth, kind = kind, boxHeight = boxHeight)
                     }
                 }
             }
@@ -136,6 +151,11 @@ object CompactPdfGeneratorV2 {
     }
 
     // ---- formatting helpers ------------------------------------------------
+
+    /** The grid badge shows a bare amount ("5,000"), no "/-" - the bumper-prize rows above keep
+     * the full "1,00,00,000/-" form, only the badge drops the suffix. */
+    private fun formatAmountNoSuffix(raw: String): String =
+        CompactPdfGenerator.formatAmount(raw).removeSuffix("/-")
 
     private fun displayLabel(tier: PrizeTier): String = when (tier.label) {
         "1st Prize" -> "FIRST PRIZE"
@@ -169,10 +189,13 @@ object CompactPdfGeneratorV2 {
 
     // ---- paints --------------------------------------------------------------
 
+    /** Extra-bold on top of the already-bold monospace face - the grid numbers are meant to
+     * read at a glance, so they get a heavier weight than everything else on the page. */
     private fun numberPaint(size: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = size
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         color = Color.BLACK
+        isFakeBoldText = true
     }
 
     private fun labelPaint(size: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -233,8 +256,8 @@ object CompactPdfGeneratorV2 {
 
         val numberPaint = numberPaint(plan.numberFontSize)
         val labelPaint = labelPaint(plan.numberFontSize)
-        val spinePaint = Paint(labelPaint(plan.numberFontSize)).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER }
-        val spineBg = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
+        val badgeTextPaint = Paint(labelPaint(plan.numberFontSize)).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER }
+        val badgeBg = Paint().apply { color = Color.BLACK; style = Paint.Style.FILL }
         val leftX = MARGIN
 
         y += -labelPaint.fontMetrics.ascent + 3f
@@ -254,53 +277,46 @@ object CompactPdfGeneratorV2 {
 
         for (tr in plan.tierRows) {
             val tier = tr.tier
-            val amountText = CompactPdfGenerator.formatAmount(tier.amount)
             val label = displayLabel(tier)
 
             when (tr.kind) {
                 Kind.WINNER -> {
+                    val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                     val winners = tier.winners.ifEmpty { listOf(null) }
                     winners.forEachIndexed { i, winner ->
-                        canvas.drawText(winnerLine(label, amountText, winner, i == 0), leftX, y, labelPaint)
+                        canvas.drawText(winnerLine(label, fullAmount, winner, i == 0), leftX, y, labelPaint)
                         y += (plan.numberFontSize + 2f) * ROW_LEADING
                     }
                 }
                 Kind.CONSOLATION -> {
+                    val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                     val lines = collapseConsolation(tier.numbers).ifEmpty { listOf("") }
                     lines.forEachIndexed { index, entry ->
-                        canvas.drawText(consolationLine(label, amountText, entry, index == 0), leftX, y, labelPaint)
+                        canvas.drawText(consolationLine(label, fullAmount, entry, index == 0), leftX, y, labelPaint)
                         y += (plan.numberFontSize + 2f) * ROW_LEADING
                     }
                 }
                 Kind.GRID -> {
-                    // y is the box's TOP edge here (not a text baseline) - the spine and every
-                    // number row sit at-or-below it, mirroring the exact height plan() budgeted.
-                    // Numbers start right at the top - no centering gap - since the box height
-                    // now tracks them exactly with nothing else competing for the space.
+                    val amountText = formatAmountNoSuffix(tier.amount)
                     val boxTop = y
-                    val boxBottom = boxTop + tr.boxHeight
-                    canvas.drawRect(MARGIN, boxTop, MARGIN + tr.spineWidth, boxBottom, spineBg)
-
-                    canvas.save()
-                    val spineCenterX = MARGIN + tr.spineWidth / 2f
-                    val spineCenterY = (boxTop + boxBottom) / 2f
-                    canvas.rotate(-90f, spineCenterX, spineCenterY)
-                    val spineFm = spinePaint.fontMetrics
-                    canvas.drawText(amountText, spineCenterX, spineCenterY - (spineFm.ascent + spineFm.descent) / 2f, spinePaint)
-                    canvas.restore()
-
                     val columns = tr.columns.coerceAtLeast(1)
-                    val numbersLeft = MARGIN + tr.spineWidth + GUTTER
-                    val numbersWidth = contentWidth - tr.spineWidth - GUTTER
-                    val colWidth = numbersWidth / columns
+                    val rowHeight = plan.numberFontSize * ROW_LEADING
+
+                    // The badge takes exactly the first column's cell on row 0 - one row tall,
+                    // horizontal text, no rotation - so it costs no height of its own; numbers
+                    // simply start in the very next slot, same row.
+                    canvas.drawRect(MARGIN, boxTop, MARGIN + tr.colWidth - GUTTER, boxTop + rowHeight, badgeBg)
+                    val badgeFm = badgeTextPaint.fontMetrics
+                    val badgeBaseline = boxTop + rowHeight / 2f - (badgeFm.ascent + badgeFm.descent) / 2f
+                    canvas.drawText(amountText, MARGIN + (tr.colWidth - GUTTER) / 2f, badgeBaseline, badgeTextPaint)
+
                     tier.numbers.forEachIndexed { index, num ->
-                        val col = index % columns
-                        val row = index / columns
-                        val x = numbersLeft + col * colWidth
-                        val rowY = boxTop + (-numberPaint.fontMetrics.ascent) + row * plan.numberFontSize * ROW_LEADING
+                        val (row, col) = gridPosition(index, columns)
+                        val x = MARGIN + col * tr.colWidth
+                        val rowY = boxTop + (-numberPaint.fontMetrics.ascent) + row * rowHeight
                         canvas.drawText(num, x, rowY, numberPaint)
                     }
-                    y = boxBottom
+                    y = boxTop + tr.boxHeight
                 }
             }
             y += TIER_GAP
