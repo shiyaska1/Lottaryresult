@@ -175,31 +175,25 @@ object CompactPdfGeneratorV2 {
         val winnerFs = findWinnerFontSize(result, contentWidth)
         val winnerLineHeight = (winnerFs + 2f) * ROW_LEADING
         val winnerDescent = labelPaint(winnerFs).fontMetrics.descent
-        val firstLineGap = -labelPaint(winnerFs).fontMetrics.ascent + 3f
+        // Gap from a block's top down to its first line's baseline - every WINNER/CONSOLATION
+        // tier needs this once, at its own start, not just the very first one on the page.
+        val topGap = -labelPaint(winnerFs).fontMetrics.ascent + 3f
 
-        // Each tier's last line only needs to clear its own descent, not a full line-height's
-        // worth of trailing space as if another line were about to follow it - reserving a
-        // whole extra line after the very last bumper/consolation row was exactly the gap
-        // showing up as dead space before the grid tiers begin.
-        var nonGridHeight = firstLineGap
+        var nonGridHeight = 0f
         for (tier in result.tiers) {
             when (kindOf(tier)) {
                 Kind.WINNER -> {
                     val n = tier.winners.size.coerceAtLeast(1)
-                    nonGridHeight += (n - 1) * winnerLineHeight + winnerDescent + TIER_GAP
+                    nonGridHeight += topGap + (n - 1) * winnerLineHeight + winnerDescent + TIER_GAP
                 }
                 Kind.CONSOLATION -> {
                     val n = collapseConsolation(tier.numbers).ifEmpty { listOf("") }.size
-                    nonGridHeight += (n - 1) * winnerLineHeight + winnerDescent + TIER_GAP
+                    nonGridHeight += topGap + (n - 1) * winnerLineHeight + winnerDescent + TIER_GAP
                 }
                 Kind.GRID -> {}
             }
         }
 
-        // nonGridHeight already includes firstLineGap once (its initial value), so it isn't
-        // added again here - HEADER_FIXED_TOP + nonGridHeight + gridContribution <=
-        // availableHeight is exactly the same overall budget the single-phase search used to
-        // enforce in one pass.
         val remainingHeight = (availableHeight - HEADER_FIXED_TOP - nonGridHeight).coerceAtLeast(0f)
         val gridTiers = result.tiers.filter { kindOf(it) == Kind.GRID }
         val gridFs = gridFontOverride?.coerceIn(MIN_FONT, CEILING_FONT)
@@ -322,7 +316,6 @@ object CompactPdfGeneratorV2 {
 
         val leftX = MARGIN
         val winnerLabelPaint = labelPaint(plan.winnerFontSize)
-        y += -winnerLabelPaint.fontMetrics.ascent + 3f
 
         if (plan.tierRows.isEmpty()) {
             val bodyBottom = pageH - MARGIN - FOOTER_HEIGHT
@@ -346,22 +339,26 @@ object CompactPdfGeneratorV2 {
                     val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                     val winners = tier.winners.ifEmpty { listOf(null) }
                     val lineHeight = (tr.fontSize + 2f) * ROW_LEADING
+                    // y enters this block as the top of the block, same as a GRID tier's boxTop -
+                    // every tier needs its own gap down to its first baseline, not just the very
+                    // first tier on the page.
+                    val baseline0 = y + (-winnerLabelPaint.fontMetrics.ascent + 3f)
                     winners.forEachIndexed { i, winner ->
-                        canvas.drawText(winnerLine(label, fullAmount, winner, i == 0), leftX, y + i * lineHeight, winnerLabelPaint)
+                        canvas.drawText(winnerLine(label, fullAmount, winner, i == 0), leftX, baseline0 + i * lineHeight, winnerLabelPaint)
                     }
                     // Only the last line's own descent, not a full extra line-height as if
-                    // another line were coming next - that overshoot was the visible gap before
-                    // the grid tiers started.
-                    y += (winners.size - 1) * lineHeight + winnerLabelPaint.fontMetrics.descent
+                    // another line were coming next.
+                    y = baseline0 + (winners.size - 1) * lineHeight + winnerLabelPaint.fontMetrics.descent
                 }
                 Kind.CONSOLATION -> {
                     val fullAmount = CompactPdfGenerator.formatAmount(tier.amount)
                     val lines = collapseConsolation(tier.numbers).ifEmpty { listOf("") }
                     val lineHeight = (tr.fontSize + 2f) * ROW_LEADING
+                    val baseline0 = y + (-winnerLabelPaint.fontMetrics.ascent + 3f)
                     lines.forEachIndexed { index, entry ->
-                        canvas.drawText(consolationLine(label, fullAmount, entry, index == 0), leftX, y + index * lineHeight, winnerLabelPaint)
+                        canvas.drawText(consolationLine(label, fullAmount, entry, index == 0), leftX, baseline0 + index * lineHeight, winnerLabelPaint)
                     }
-                    y += (lines.size - 1) * lineHeight + winnerLabelPaint.fontMetrics.descent
+                    y = baseline0 + (lines.size - 1) * lineHeight + winnerLabelPaint.fontMetrics.descent
                 }
                 Kind.GRID -> {
                     val amountText = formatAmountNoSuffix(tier.amount)
