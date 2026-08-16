@@ -64,7 +64,10 @@ object CompactPdfGeneratorV2 {
 
     // ---- layout model ------------------------------------------------------
 
-    private class TierRows(val tier: PrizeTier, val columns: Int, val colWidth: Float, val kind: Kind, val boxHeight: Float, val fontSize: Float)
+    // col0Width fits the amount badge (and, on later rows, a number too - the badge only owns
+    // row 0's slot, every other row has a real number in column 0) - colWidth is for every other
+    // column, sized just to the numbers themselves, usually narrower, so more of them fit per row.
+    private class TierRows(val tier: PrizeTier, val columns: Int, val col0Width: Float, val colWidth: Float, val kind: Kind, val boxHeight: Float, val fontSize: Float)
     private enum class Kind { WINNER, CONSOLATION, GRID }
 
     private class Plan(
@@ -131,20 +134,23 @@ object CompactPdfGeneratorV2 {
     }
 
     /** Measures one grid tier at [fs] - used both while searching for the grid font size and
-     * to build the final row once that size is settled, so the two can never disagree. */
+     * to build the final row once that size is settled, so the two can never disagree. Column 0
+     * is the only one that ever needs to fit the amount badge; every other column only ever
+     * holds a number, so it's sized to that alone - letting more of them fit across the page. */
     private fun measureGridTier(tier: PrizeTier, fs: Float, contentWidth: Float): Pair<TierRows, Boolean> {
         val numberPaint = numberPaint(fs)
         val badgePaint = labelPaint(fs)
         val amount = formatAmountNoSuffix(tier.amount)
         val widestNumber = tier.numbers.maxOfOrNull { numberPaint.measureText(it) } ?: 0f
         val badgeWidth = badgePaint.measureText(amount)
-        val widest = maxOf(widestNumber, badgeWidth)
-        val fits = widest <= contentWidth
-        val colWidth = widest + GUTTER
-        val columns = if (colWidth <= 0f) 1 else maxOf(1, (contentWidth / colWidth).toInt())
+        val col0Width = maxOf(widestNumber, badgeWidth) + GUTTER
+        val colWidth = widestNumber + GUTTER
+        val fits = col0Width <= contentWidth
+        val extraColumns = if (colWidth <= 0f) 0 else maxOf(0, ((contentWidth - col0Width) / colWidth).toInt())
+        val columns = 1 + extraColumns
         val rowCount = gridRowCount(tier.numbers.size, columns)
         val boxHeight = rowCount * fs * ROW_LEADING
-        return TierRows(tier, columns, colWidth, Kind.GRID, boxHeight, fs) to fits
+        return TierRows(tier, columns, col0Width, colWidth, Kind.GRID, boxHeight, fs) to fits
     }
 
     /** Largest font at which every grid tier's numbers - all of them together - fit within
@@ -201,8 +207,8 @@ object CompactPdfGeneratorV2 {
 
         val rows = result.tiers.map { tier ->
             when (kindOf(tier)) {
-                Kind.WINNER -> TierRows(tier, columns = 1, colWidth = 0f, kind = Kind.WINNER, boxHeight = 0f, fontSize = winnerFs)
-                Kind.CONSOLATION -> TierRows(tier, columns = 1, colWidth = 0f, kind = Kind.CONSOLATION, boxHeight = 0f, fontSize = winnerFs)
+                Kind.WINNER -> TierRows(tier, columns = 1, col0Width = 0f, colWidth = 0f, kind = Kind.WINNER, boxHeight = 0f, fontSize = winnerFs)
+                Kind.CONSOLATION -> TierRows(tier, columns = 1, col0Width = 0f, colWidth = 0f, kind = Kind.CONSOLATION, boxHeight = 0f, fontSize = winnerFs)
                 Kind.GRID -> measureGridTier(tier, gridFs, contentWidth).first
             }
         }
@@ -372,15 +378,17 @@ object CompactPdfGeneratorV2 {
 
                     // The badge takes exactly the first column's cell on row 0 - one row tall,
                     // horizontal text, no rotation - so it costs no height of its own; numbers
-                    // simply start in the very next slot, same row.
-                    canvas.drawRect(MARGIN, boxTop, MARGIN + tr.colWidth - GUTTER, boxTop + rowHeight, badgeBg)
+                    // simply start in the very next slot, same row. Column 0 keeps its own
+                    // (wider) width throughout; every other column uses the narrower number-only
+                    // width, so this x math must match measureGridTier's column count exactly.
+                    canvas.drawRect(MARGIN, boxTop, MARGIN + tr.col0Width - GUTTER, boxTop + rowHeight, badgeBg)
                     val badgeFm = badgeTextPaint.fontMetrics
                     val badgeBaseline = boxTop + rowHeight / 2f - (badgeFm.ascent + badgeFm.descent) / 2f
-                    canvas.drawText(amountText, MARGIN + (tr.colWidth - GUTTER) / 2f, badgeBaseline, badgeTextPaint)
+                    canvas.drawText(amountText, MARGIN + (tr.col0Width - GUTTER) / 2f, badgeBaseline, badgeTextPaint)
 
                     tier.numbers.forEachIndexed { index, num ->
                         val (row, col) = gridPosition(index, columns)
-                        val x = MARGIN + col * tr.colWidth
+                        val x = MARGIN + if (col == 0) 0f else tr.col0Width + (col - 1) * tr.colWidth
                         val rowY = boxTop + (-numberPaint.fontMetrics.ascent) + row * rowHeight
                         canvas.drawText(num, x, rowY, numberPaint)
                     }
