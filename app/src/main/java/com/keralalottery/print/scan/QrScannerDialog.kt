@@ -1,5 +1,7 @@
 package com.keralalottery.print.scan
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -9,16 +11,22 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,10 +49,12 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 
 /**
- * Full-screen live camera scanner for a lottery ticket's own barcode/QR code. ML Kit's default
- * scanner detects both 1D barcodes and QR codes with no extra configuration, so this covers
- * whichever the ticket actually has. Decodes whatever the ticket printer put in the code (this
- * app doesn't control that format) and hands the raw scanned text straight back to the caller.
+ * Full-screen scanner for a lottery ticket's own barcode/QR code - either live via the camera,
+ * or an existing photo picked from the gallery (the ticket might already be photographed rather
+ * than in hand). ML Kit's default scanner detects both 1D barcodes and QR codes with no extra
+ * configuration, so this covers whichever the ticket actually has either way. Decodes whatever
+ * the ticket printer put in the code (this app doesn't control that format) and hands the raw
+ * scanned text straight back to the caller.
  */
 @Composable
 fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
@@ -52,9 +62,36 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val onResultState = rememberUpdatedState(onResult)
     var handled by remember { mutableStateOf(false) }
+    var galleryError by remember { mutableStateOf<String?>(null) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null || handled) return@rememberLauncherForActivityResult
+        galleryError = null
+        val scanner = BarcodeScanning.getClient()
+        runCatching { InputImage.fromFilePath(context, uri) }
+            .onSuccess { image ->
+                scanner.process(image)
+                    .addOnSuccessListener { barcodes ->
+                        val value = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue
+                        if (value != null && !handled) {
+                            handled = true
+                            onResultState.value(value)
+                        } else {
+                            galleryError = "ഈ ചിത്രത്തിൽ ബാർകോഡ്/QR കോഡ് കണ്ടെത്താനായില്ല."
+                        }
+                    }
+                    .addOnFailureListener { galleryError = "ചിത്രം സ്കാൻ ചെയ്യാൻ കഴിഞ്ഞില്ല." }
+            }
+            .onFailure { galleryError = "ചിത്രം തുറക്കാൻ കഴിഞ്ഞില്ല." }
+    }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+            // At least 15% of the screen height kept clear at the bottom - on a gesture-nav
+            // phone the hint/controls otherwise sit right where the OS's own gesture area is,
+            // half hidden behind it.
+            val bottomClearance = maxHeight * 0.15f
+
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
@@ -104,17 +141,35 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
                     .border(BorderStroke(3.dp, Color.White))
             )
 
-            Text(
-                "ടിക്കറ്റിലെ ബാർകോഡ്/QR കോഡ് ക്യാമറയ്ക്ക് നേരെ പിടിക്കുക",
-                color = Color.White,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.titleMedium,
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(16.dp)
-            )
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottomClearance),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "ടിക്കറ്റിലെ ബാർകോഡ്/QR കോഡ് ക്യാമറയ്ക്ക് നേരെ പിടിക്കുക",
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                galleryError?.let {
+                    Text(
+                        it,
+                        color = Color(0xFFFF6B6B),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+                TextButton(onClick = { galleryLauncher.launch("image/*") }) {
+                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null, tint = Color.White)
+                    Spacer(Modifier.width(6.dp))
+                    Text("ഗാലറിയിൽ നിന്ന് തിരഞ്ഞെടുക്കുക", color = Color.White)
+                }
+            }
 
             IconButton(
                 onClick = onDismiss,
