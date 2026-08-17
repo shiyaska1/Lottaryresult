@@ -570,8 +570,10 @@ private fun LotteryPrintApp() {
             }
         }
 
-        // Source buttons sit right under the preview, nothing else between them - the source/
-        // listing picker only shows up later, once the first preview is ready.
+        // Source 1/2 sit right under the preview, nothing else between them - only when
+        // "unofficial" is on. With it off, the one-page-PDF button moves down to just under the
+        // listing dropdown instead (further below), since that's where the specific draw it acts
+        // on is actually picked.
         HorizontalDivider()
         if (useUnofficial) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -611,20 +613,6 @@ private fun LotteryPrintApp() {
                     enabled = genState !is GenerationState.Working,
                     modifier = Modifier.weight(1f)
                 ) { Text("സ്രോതസ്സ് 2") }
-            }
-        } else {
-            Button(
-                onClick = {
-                    val listing = selectedListing ?: return@Button
-                    pendingGeneration = ResultSource.OFFICIAL to suspend {
-                        val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
-                        LotteryPdfParser.parsePdfBytes(context, bytes)
-                    }
-                },
-                enabled = selectedListing != null && genState !is GenerationState.Working,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
             }
         }
 
@@ -799,6 +787,24 @@ private fun LotteryPrintApp() {
                             }
                         }
                     }
+                }
+            }
+
+            // "Unofficial" off means official mode - the one-page-PDF button belongs right under
+            // the dropdown above, since that's where the specific draw it acts on gets picked.
+            if (!useUnofficial) {
+                Button(
+                    onClick = {
+                        val listing = selectedListing ?: return@Button
+                        pendingGeneration = ResultSource.OFFICIAL to suspend {
+                            val bytes = OfficialLotteryResultsClient.fetchResultPdf(listing.itemId)
+                            LotteryPdfParser.parsePdfBytes(context, bytes)
+                        }
+                    },
+                    enabled = selectedListing != null && genState !is GenerationState.Working,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("ഏറ്റവും പുതിയ ഫലം എടുത്ത് ഒറ്റ പേജ് തയ്യാറാക്കുക")
                 }
             }
         }
