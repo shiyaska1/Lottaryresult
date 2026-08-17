@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -153,6 +154,28 @@ private enum class RootTab(val label: String) {
 @Composable
 private fun RootTabs() {
     var tab by remember { mutableStateOf(RootTab.LOTTERY) }
+
+    // Back press always asks first, rather than exiting straight away - easy to hit by accident
+    // while scrolling a long result. Confirming removes the task from Recents too (not just this
+    // Activity instance), so the next launch is a genuinely fresh cold start instead of Android
+    // silently resuming a saved instance from memory.
+    var showExitConfirm by remember { mutableStateOf(false) }
+    val activity = LocalContext.current as? ComponentActivity
+    BackHandler { showExitConfirm = true }
+    if (showExitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirm = false },
+            title = { Text("ആപ്പ് അടയ്ക്കണോ?") },
+            text = { Text("ആപ്പ് പൂർണ്ണമായി അടയ്ക്കും.") },
+            confirmButton = {
+                TextButton(onClick = { activity?.finishAndRemoveTask() }) { Text("അടയ്ക്കുക") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirm = false }) { Text("റദ്ദാക്കുക") }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         // Scrollable rather than fixed: with 4+ tabs a fixed TabRow starts cramming/wrapping
         // labels on a narrow phone, and this only grows as more tabs get added.
@@ -547,76 +570,9 @@ private fun LotteryPrintApp() {
             }
         }
 
-        // Generate controls sit right under the preview, not buried below the search section -
-        // the preview above updates the moment one of these is used.
+        // Source buttons sit right under the preview, nothing else between them - the source/
+        // listing picker only shows up later, once the first preview is ready.
         HorizontalDivider()
-        Text("ഏറ്റവും പുതിയ ഔദ്യോഗിക ഫലം എടുക്കുക", style = MaterialTheme.typography.titleMedium)
-
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = useUnofficial, onCheckedChange = { useUnofficial = it })
-                Text("അനൗദ്യോഗിക സ്രോതസ്സ് ഉപയോഗിക്കുക (വേഗത്തിൽ)")
-            }
-            if (useUnofficial) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = unofficialDayOffset == 0, onClick = { unofficialDayOffset = 0 }, label = { Text("ഇന്ന്") })
-                    FilterChip(selected = unofficialDayOffset == -1, onClick = { unofficialDayOffset = -1 }, label = { Text("ഇന്നലെ") })
-                }
-                // Not necessarily today's draw - the chips above let it target yesterday's
-                // instead, so someone can compare the unofficial source against an already-
-                // complete official result. Shown here so it's never a surprise which draw is
-                // about to be checked.
-                val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
-                val target = KeralaLotterySchedule.listingForDate(
-                    java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong()), officialItems
-                )
-                if (target != null) {
-                    Text(
-                        "പരിശോധിക്കുന്നത്: ${target.name} (${target.drawCode}) — ${target.date}",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-            }
-        }
-
-        when (val ls = listingsState) {
-            is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("ലോട്ടറി പട്ടിക ലോഡ് ചെയ്യുന്നു…")
-            }
-            is ListingsState.Error -> Column {
-                Text("പിശക്: ${ls.message}", color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { reloadKey++ }) { Text("വീണ്ടും ശ്രമിക്കുക") }
-            }
-            is ListingsState.Loaded -> {
-                var expanded by remember { mutableStateOf(false) }
-                ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-                    OutlinedTextField(
-                        value = selectedListing?.let { "${it.name} (${it.drawCode}) — ${it.date}" } ?: "",
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("ലോട്ടറി") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        modifier = Modifier
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        ls.items.forEach { listing ->
-                            DropdownMenuItem(
-                                text = { Text("${listing.name} (${listing.drawCode}) — ${listing.date}") },
-                                onClick = {
-                                    selectedListing = listing
-                                    expanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
         if (useUnofficial) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
@@ -693,18 +649,6 @@ private fun LotteryPrintApp() {
         }
 
         HorizontalDivider()
-        Text("ലോട്ടറി ഫലം — ഒറ്റ പേജ് പ്രിന്റ്", style = MaterialTheme.typography.headlineSmall)
-
-        OutlinedTextField(
-            value = companyName,
-            onValueChange = { companyName = it },
-            label = { Text("ഹെഡർ / കമ്പനി പേര്") },
-            placeholder = { Text("ഉദാ: ശ്രീ ലക്കി ഏജൻസീസ്") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        HorizontalDivider()
         Text("ടിക്കറ്റ് നമ്പർ പരിശോധിക്കുക", style = MaterialTheme.typography.titleMedium)
         Text(
             "ഒന്നിലധികം ടിക്കറ്റ് നമ്പറുകൾ കോമയിട്ട് വേർതിരിച്ച് നൽകാം (ഉദാ: 1234, 5678). ഏതെങ്കിലും ഭാഗം മതി.",
@@ -769,6 +713,91 @@ private fun LotteryPrintApp() {
                     )
                     TextButton(onClick = { runSearch(depth = ss.depthTried + 1, queriesOverride = ss.notFoundQueries, previousMatches = ss.matches) }) {
                         Text("മുൻ തീയതി പരിശോധിക്കുക")
+                    }
+                }
+            }
+        }
+
+        // Company name and the source/listing picker are settings someone tunes occasionally,
+        // not what they need to see before the first result - held back until a preview attempt
+        // has actually finished (succeeded or failed), so the preview above is what appears
+        // first, not this.
+        if (genState is GenerationState.Ready || genState is GenerationState.Error) {
+            HorizontalDivider()
+            Text("ഹെഡർ / കമ്പനി പേര്", style = MaterialTheme.typography.titleMedium)
+            OutlinedTextField(
+                value = companyName,
+                onValueChange = { companyName = it },
+                label = { Text("ഹെഡർ / കമ്പനി പേര്") },
+                placeholder = { Text("ഉദാ: ശ്രീ ലക്കി ഏജൻസീസ്") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            HorizontalDivider()
+            Text("ഏറ്റവും പുതിയ ഔദ്യോഗിക ഫലം എടുക്കുക", style = MaterialTheme.typography.titleMedium)
+
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = useUnofficial, onCheckedChange = { useUnofficial = it })
+                    Text("അനൗദ്യോഗിക സ്രോതസ്സ് ഉപയോഗിക്കുക (വേഗത്തിൽ)")
+                }
+                if (useUnofficial) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = unofficialDayOffset == 0, onClick = { unofficialDayOffset = 0 }, label = { Text("ഇന്ന്") })
+                        FilterChip(selected = unofficialDayOffset == -1, onClick = { unofficialDayOffset = -1 }, label = { Text("ഇന്നലെ") })
+                    }
+                    // Not necessarily today's draw - the chips above let it target yesterday's
+                    // instead, so someone can compare the unofficial source against an already-
+                    // complete official result. Shown here so it's never a surprise which draw is
+                    // about to be checked.
+                    val officialItems = (listingsState as? ListingsState.Loaded)?.items.orEmpty()
+                    val target = KeralaLotterySchedule.listingForDate(
+                        java.time.LocalDate.now().plusDays(unofficialDayOffset.toLong()), officialItems
+                    )
+                    if (target != null) {
+                        Text(
+                            "പരിശോധിക്കുന്നത്: ${target.name} (${target.drawCode}) — ${target.date}",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
+                }
+            }
+
+            when (val ls = listingsState) {
+                is ListingsState.Loading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("ലോട്ടറി പട്ടിക ലോഡ് ചെയ്യുന്നു…")
+                }
+                is ListingsState.Error -> Column {
+                    Text("പിശക്: ${ls.message}", color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { reloadKey++ }) { Text("വീണ്ടും ശ്രമിക്കുക") }
+                }
+                is ListingsState.Loaded -> {
+                    var expanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        OutlinedTextField(
+                            value = selectedListing?.let { "${it.name} (${it.drawCode}) — ${it.date}" } ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("ലോട്ടറി") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            modifier = Modifier
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                .fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            ls.items.forEach { listing ->
+                                DropdownMenuItem(
+                                    text = { Text("${listing.name} (${listing.drawCode}) — ${listing.date}") },
+                                    onClick = {
+                                        selectedListing = listing
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
