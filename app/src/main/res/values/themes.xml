@@ -1,3 +1,10 @@
 <resources>
-    <style name="Theme.LotteryPrint" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.LotteryPrint" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- The Compose UI is fixed to a light MaterialTheme with no dark variant. Without
+             this, Android's Force Dark (on by default for API 29+ apps that don't opt out)
+             can try to auto-invert it when the device is in system dark mode - producing
+             exactly the white-text-on-white-background glitch reported on a phone with dark
+             mode on, while a phone in light mode never showed it. -->
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
 </resources>
