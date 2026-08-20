@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.keralalottery.print.calculator.CalculatorScreen
 import com.keralalottery.print.data.AppPrefs
-import com.keralalottery.print.data.License
 import com.keralalottery.print.diary.DiaryScreen
 import com.keralalottery.print.education.EducationScreen
 import com.keralalottery.print.gold.GoldRateScreen
@@ -119,9 +118,10 @@ class MainActivity : ComponentActivity() {
         val prefs = AppPrefs(this)
         // Start the trial clock automatically on first launch - no registration needed.
         if (prefs.installDateMillis <= 0L) prefs.installDateMillis = System.currentTimeMillis()
-        // 30-day trial, then a blocking activation-key prompt - same device-locked HMAC scheme
-        // as the POS Billing app, so the same key-generator tool issues keys for both.
-        val needsLicense = !prefs.licensed && License.trialExpired(prefs.installDateMillis)
+        // Trial/licence gate disabled - the app is free for everyone. License.kt/AppPrefs.kt/
+        // LicenseScreen.kt (same device-locked HMAC scheme as the POS Billing app) are left in
+        // place in case a licensing scheme is wanted again later.
+        val needsLicense = false
 
         setContent {
             MaterialTheme {
